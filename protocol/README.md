@@ -45,13 +45,13 @@
 
 ## M2 可取消预览与文件任务 Session v3
 
-- hello capability 包含 `preview-session-v3`、`workspace-sort-v1`、`pane-tabs-v1`、`open-v1` 和 `resource-tasks-v1`。`file-actions-v1` 在 macOS 和 Linux headless session 发布；Windows 和尚未具备同等原子文件操作的其他平台不会发布该 capability。Linux delete 默认调用 `/usr/bin/gio trash`，macOS 使用 `/usr/bin/trash`；测试可用 `NEOVIFM_TRASH_EXECUTABLE` 注入绝对路径 helper。capability 表示协议入口存在，不代表外部 helper 或平台 E2E 已完成。v3 保留 v2 完整 `workspace-snapshot` 与 command acknowledgement 语义；preview、action 和 resource task 使用各自的生命周期 record。
+- hello capability 包含 `preview-session-v3`、`workspace-sort-v1`、`pane-tabs-v1`、`open-v1` 和 `resource-tasks-v1`。`file-actions-v1` 在 macOS、Linux 和 Windows 10+ headless session 发布；低于 Windows 10 和尚未具备同等原子文件操作的平台不会发布。Linux delete 默认调用 `/usr/bin/gio trash`，macOS 使用 `/usr/bin/trash`，Windows 使用 Recycle Bin；测试可用 `NEOVIFM_TRASH_EXECUTABLE` 注入绝对路径 helper。capability 表示协议入口存在，不代表外部 helper 或平台 E2E 已完成。v3 保留 v2 完整 `workspace-snapshot` 与 command acknowledgement 语义；preview、action 和 resource task 使用各自的生命周期 record。
 - task 与 preview 都必须携带 task id、generation、pane、preview kind、cwd/path 原始 hex identity、状态和（适用时）结构化 error。完成 preview 额外携带至多 64 KiB 的文本；过时 generation 的 preview 不得覆盖新 generation。请求在 deadline 前未开始或在受限读取循环中超时，会以 `failed` / `preview-timeout` 终态发布。
 - v3 session 在主线程从当前不可变 pane snapshot 构造 preview request（pane、generation、cwd/path 原始 hex 与 kind），每次 cursor/focus 工作区更新都会替换同 pane 的旧请求。stdin 不接受 shell command；所有交互都必须匹配 schema 中的有限 action。
 - v3 导航 command 在 v2 基础上增加 `focus-next`、`move-to`、`sort-cycle` 与 `sort-by`。`focus-next` 由 core 基于当前 workspace 原子切换 pane；`move-to` 的 `target` 仅允许 `first`/`last`；排序也由 core 重排不可变 snapshot 并保留 cursor identity。
-- 只有 hello 发布 `file-actions-v1` 时，client 才可发送 `copy`、`move-files`、`mkdir` 与 `delete`。命令必须携带点击/按键当时的 pane、cwd hex、snapshot revision、cwd 的 device/inode/ctime identity；每个 target 必须携带 path hex、device/inode/ctime 和 kind。copy/move 还必须携带目标 pane 的同一组 identity。core 只接受仍属于对应不可变 snapshot 的 target，worker 又会以 parent-FD-relative no-follow 操作重新校验真实目录和 entry identity；不执行 display path 或任意外部路径。
+- 只有 hello 发布 `file-actions-v1` 时，client 才可发送 `copy`、`move-files`、`mkdir` 与 `delete`。命令必须携带点击/按键当时的 pane、cwd hex、snapshot revision、cwd 的 device/inode/ctime identity；每个 target 必须携带 path hex、device/inode/ctime 和 kind。copy/move 还必须携带目标 pane 的同一组 identity。core 只接受仍属于对应不可变 snapshot 的 target；worker 在 POSIX 使用 pinned parent FD、在 Windows 使用 pinned directory/entry handle 重新校验真实目录和 entry identity，不执行 display path 或任意外部路径。
 - 文件动作由单 worker action queue 执行，主循环仍可处理 `hjkl`、Tab、watcher 与 F10。提交后立即以不变 workspace 的 `trigger: "command"` 确认；queue 依次发 `action-task` 的 queued/running/terminal record。terminal 前主线程刷新双 pane 并发 `trigger: "action"`，随后 event 给出 completed_count、failed_index、partial、error_code 和 os_error。队列只接受一个未完成动作，额外请求以可恢复 `action-queue-full` 拒绝；EOF/F10 会取消未完成动作。
-- 文件动作默认 no-overwrite，并以 no-follow 方式处理符号链接；目录不得复制到自身子树。move 只允许原子同文件系统 `RENAME_EXCL`（Linux 为 `RENAME_NOREPLACE`），不进行 copy-then-delete fallback。delete 先原子移动到同目录的私有隔离目录、保留原 basename，再交给平台 Trash backend；post-check 或 Trash 失败只会无覆盖地恢复，绝不删除并发替换的对象。copy 中断或失败可能留下已复制部分，`partial` 会显式标记，主线程总会刷新 pane。
+- 文件动作默认 no-overwrite，并以 no-follow 方式处理符号链接/reparse point；目录不得复制到自身子树。move 只允许原子同文件系统 rename（Linux 为 `renameat2(RENAME_NOREPLACE)`；Windows 为 source handle `FileRenameInfo`），不进行 copy-then-delete fallback。delete 先原子移动到同目录的私有隔离目录、保留原 basename，再交给平台 Trash/Recycle Bin backend；post-check 或 backend 失败只会无覆盖地恢复，绝不删除并发替换的对象。copy 中断或失败可能留下已复制部分，`partial` 会显式标记，主线程总会刷新 pane。Windows 的 copy/move/mkdir undo 使用现有 undo command；delete 依赖 Recycle Bin，不新增协议级 delete undo。
 - `open` command 是 core-owned 的打开意图边界：客户端发送 `intent: "open"`、source pane/cwd/snapshot identity、entry device/inode/ctime 和目标 `path_bytes_hex`，可选的结构化 `association_argv` 前缀；core 先拒绝 stale target，再解析，不接受 shell 字符串。显式 association 优先，否则 macOS 使用绝对路径 `/usr/bin/open`，Linux/BSD 等平台使用 `xdg-open`。core 只发布带 `source`、原始路径 hex 和最终 `argv` 的 `open` resolved record；实际外部进程启动由客户端按平台策略执行。
 - preview worker 执行受限文本/目录 I/O，并为图片、PDF、音频、视频和 archive 提供有界 metadata、文本或 `chafa` block-symbol 降级；缺少 helper 时返回结构化错误。原生 Kitty/Sixel 图形、音频封面、完整 archive mount 和 Git metadata 仍未完成。stdout 由 session 主循环批量发布，stderr 只留诊断。
 
@@ -76,8 +76,8 @@
 
 - `*_display` 是供 UI 使用的 UTF-8 字符串。
 - POSIX 上，`*_bytes_hex` 是原始路径字节的十六进制表示，是 M0 的无损标识。
-- Windows 端口在定义原生路径表示前，`*_bytes_hex` 使用 core 内部 UTF-8 路径字节；不能宣称是 Win32 原始字节。
-- Windows probe 通过 `FindFirstFileW()` 保留符号链接身份（包括悬挂链接）；junction 和其他 reparse point 不会被误报为 `symlink`。其 M0 metadata 来自 no-follow directory entry，未承诺完整 Win32 stat 扩展字段。
+- Windows 的 `*_bytes_hex` 使用 core 内部 UTF-8 路径字节；Win32 边界转换为 UTF-16 extended-length absolute path，不能把该字段解释成 Win32 原始字节。
+- Windows probe 通过 `FindFirstFileW()` 和 no-follow handle 保留 reparse point 身份；junction 和其他 reparse point 不会被递归跟随。文件操作 identity 仍通过既有 `device`、`inode`、`ctime_unix_ns` 字段发布，内部来源依次为 volume serial、64 位 file index 和 creation `FILETIME`。
 - 若 probe 接收相对目录参数，`cwd_*` 与 entry `path_*` 均相对于启动 probe 时的工作目录；客户端在 M0 中只渲染这些值，不得把它们脱离该 spawn context 用于操作。
 - 客户端不得用 display 字符串执行文件操作。
 

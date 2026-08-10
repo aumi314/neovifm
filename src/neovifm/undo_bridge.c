@@ -50,20 +50,6 @@ static int initialized;
 static int undo_levels = 64;
 static uint64_t next_group_id = 1U;
 
-static uint64_t
-ctime_unix_ns(const struct stat *st)
-{
-#if defined(__APPLE__)
-	return (uint64_t)st->st_ctimespec.tv_sec*1000000000ULL +
-		(uint64_t)st->st_ctimespec.tv_nsec;
-#elif defined(__linux__)
-	return (uint64_t)st->st_ctim.tv_sec*1000000000ULL +
-		(uint64_t)st->st_ctim.tv_nsec;
-#else
-	return (uint64_t)st->st_ctime*1000000000ULL;
-#endif
-}
-
 static int
 identity_equal(nv_fs_identity_t left, nv_fs_identity_t right)
 {
@@ -95,13 +81,8 @@ current_identity(const char path[], nv_fs_identity_t *identity)
 {
 	struct stat st = {};
 	int is_symlink = 0;
-	if(nv_lstat(path, &st, &is_symlink) != 0)
+	if(nv_lstat(path, &st, &is_symlink, identity) != 0)
 		return -1;
-	*identity = (nv_fs_identity_t){
-		.device = (uint64_t)st.st_dev,
-		.inode = (uint64_t)st.st_ino,
-		.ctime_unix_ns = ctime_unix_ns(&st),
-	};
 	return 0;
 }
 
@@ -214,7 +195,8 @@ nv_undo_bridge_record_mkdir(const char path[], nv_fs_identity_t parent_identity,
 	}
 	struct stat st = {};
 	int is_symlink = 0;
-	if(nv_lstat(path, &st, &is_symlink) != 0 || is_symlink != 0 ||
+	nv_fs_identity_t identity = {};
+	if(nv_lstat(path, &st, &is_symlink, &identity) != 0 || is_symlink != 0 ||
 			!S_ISDIR(st.st_mode))
 	{
 		if(errno == 0) errno = EINVAL;
@@ -230,11 +212,7 @@ nv_undo_bridge_record_mkdir(const char path[], nv_fs_identity_t parent_identity,
 	record->kind = NV_UNDO_RECORD_MKDIR;
 	record->destination_parent_identity = parent_identity;
 	record->location = location;
-	record->child_identity = (nv_fs_identity_t){
-		.device = (uint64_t)st.st_dev,
-		.inode = (uint64_t)st.st_ino,
-		.ctime_unix_ns = ctime_unix_ns(&st),
-	};
+	record->child_identity = identity;
 	record->group_id = next_group_id++;
 	un_group_open("mkdir");
 	if(un_group_add_op(OP_MKDIR, NULL, NULL, path, "") != 0)

@@ -31,7 +31,7 @@ bun run dev
 
 Linux 使用同一流程，但 configure 不需要 Apple Clang flag。完整验证命令见 `docs/CURRENT_STATE.md`。
 
-Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core integration 命令见 `docs/CURRENT_STATE.md`。它已能运行 Alpha 0 会话，但仍不是带文件操作、安装器和默认 opener 的完整产品。
+Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core integration 命令见 `docs/CURRENT_STATE.md`。Windows 10+ 已能运行 Alpha 0 会话和安全文件操作，但仍没有 watcher、安装器和默认 opener。
 
 ## 当前功能
 
@@ -39,11 +39,11 @@ Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core int
 - protocol v3 preview/task/resource event。
 - 快速对面 pane 预览、task center 和结构化 open。
 - POSIX/macOS 和 Windows 正常退出 session 保存和恢复。
-- macOS/Linux `file-actions-v1` 文件任务和 undo bridge；Windows 留到 B2b。
+- macOS、Linux 和 Windows 10+ 的 `file-actions-v1` 文件任务和 undo bridge。
 
 ## 已知边界
 
-- Windows 不发布 `file-actions-v1`；Linux 已发布。
+- Windows 10+ 使用 Win32 handle identity 和 extended-length Unicode path；move 不跨卷 copy-delete，delete 必须经过同目录隔离和 Recycle Bin。
 - Linux move 使用 `renameat2(RENAME_NOREPLACE)`，delete 默认通过 `/usr/bin/gio trash`，测试可注入 `NEOVIFM_TRASH_EXECUTABLE`。
 - Windows 没有 watcher 和默认 Win32 opener。
 - ZIP/SSH 真实挂载依赖 helper，跨平台 E2E 未完成。

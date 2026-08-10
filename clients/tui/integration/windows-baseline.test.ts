@@ -86,7 +86,14 @@ test.skipIf(process.platform !== "win32")("real Windows cores handle Unicode pat
   }, 15_000, () => JSON.stringify({ state: running.state(), records: running.records.slice(-4), errors: running.errors.map(String) }))
   let state = running.state()
   if (!(state.phase === "ready" && "session" in state)) throw new Error("expected ready Windows session")
-  expect(state.hello.capabilities).not.toContain("file-actions-v1")
+  expect(state.hello.capabilities).toContain("file-actions-v1")
+  expect(BigInt(state.workspace.left.cwd_device!)).toBeGreaterThan(0n)
+  expect(BigInt(state.workspace.left.cwd_inode!)).toBeGreaterThan(0n)
+  expect(BigInt(state.workspace.left.cwd_ctime_unix_ns!)).toBeGreaterThan(0n)
+  const alpha = state.workspace.left.entries.find((entry) => entry.name_display === "a-阿尔法.txt")
+  expect(BigInt(alpha!.device!)).toBeGreaterThan(0n)
+  expect(BigInt(alpha!.inode!)).toBeGreaterThan(0n)
+  expect(BigInt(alpha!.ctime_unix_ns!)).toBeGreaterThan(0n)
 
   expect(await running.session.send({ action: "search", query: "贝塔", direction: 1 })).toBe(true)
   await waitFor(() => {
