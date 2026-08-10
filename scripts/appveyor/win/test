@@ -21,7 +21,7 @@ focused_status=0
 for source in tests/neovifm_snapshot/*.c; do
     fixture="$(basename "$source" .c)"
     case "$fixture" in
-        action_task|suite|undo_bridge) continue ;;
+        suite) continue ;;
     esac
     make -C tests/ TEST_RUN_FLAGS=-v "neovifm_snapshot.$fixture" "${test_args[@]}" || focused_status=1
 done
