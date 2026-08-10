@@ -30,6 +30,7 @@
 #include "open_config.h"
 #include "session_platform.h"
 #include "workspace_session.h"
+#include "../compat/neovifm_fs.h"
 #include "../utils/parson.h"
 #include "../utils/utf8.h"
 
@@ -2486,14 +2487,13 @@ core_main(int argc, char *argv[])
 		nv_snapshot_error_free(&error);
 		return 1;
 	}
-#ifndef _WIN32
-	if(nv_undo_bridge_init() != 0)
+	const int actions_supported = nv_fs_actions_supported();
+	if(actions_supported && nv_undo_bridge_init() != 0)
 	{
 		fputs("neovifm-core-session: failed to initialize undo bridge\n", stderr);
 		nv_workspace_session_free(&session);
 		return 1;
 	}
-#endif
 	nv_preview_queue_t *const preview_queue = nv_preview_queue_alloc();
 	if(preview_queue == NULL)
 	{
@@ -2503,8 +2503,8 @@ core_main(int argc, char *argv[])
 		return 1;
 	}
 	nv_action_queue_t *action_queue = NULL;
-#if defined(__APPLE__) || defined(__linux__)
-	action_queue = nv_action_queue_alloc();
+	if(actions_supported) action_queue = nv_action_queue_alloc();
+	if(actions_supported && action_queue == NULL)
 	if(action_queue == NULL)
 	{
 		fputs("neovifm-core-session: failed to initialize action queue\n", stderr);
@@ -2513,7 +2513,6 @@ core_main(int argc, char *argv[])
 		nv_workspace_session_free(&session);
 		return 1;
 	}
-#endif
 	nv_resource_task_queue_t *const resource_queue = nv_resource_task_queue_alloc();
 	if(resource_queue == NULL)
 	{

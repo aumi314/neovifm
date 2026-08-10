@@ -16,6 +16,8 @@
 
 #ifndef _WIN32
 #include <sys/time.h>
+#else
+#include <objbase.h>
 #endif
 
 #include "../compat/pthread.h"
@@ -505,9 +507,7 @@ static const char *
 failure_code(nv_session_command_kind_t kind, int os_error)
 {
 	if(os_error == ECANCELED) return "action-cancelled";
-#if defined(ESTALE)
-	if(os_error == ESTALE) return "stale-action";
-#endif
+	if(os_error == NV_FS_STALE_ERRNO) return "stale-action";
 	if(kind == NV_SESSION_MOVE_FILES && os_error == EXDEV)
 		return "cross-filesystem-move-unsupported";
 	if(os_error == EEXIST) return "destination-exists";
@@ -604,6 +604,10 @@ static void *
 action_worker(void *data)
 {
 	nv_action_queue_t *const queue = data;
+#ifdef _WIN32
+	const HRESULT com_result = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	const int com_initialized = SUCCEEDED(com_result);
+#endif
 	for(;;)
 	{
 		pthread_mutex_lock(&queue->mutex);
@@ -653,6 +657,9 @@ action_worker(void *data)
 		}
 		pthread_mutex_unlock(&queue->mutex);
 	}
+#ifdef _WIN32
+	if(com_initialized) CoUninitialize();
+#endif
 	return NULL;
 }
 

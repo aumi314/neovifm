@@ -108,7 +108,9 @@ join_path(const char dir[], const char name[])
 	char *const path = malloc(dir_length + name_length + 2U);
 	if(path == NULL) return NULL;
 	memcpy(path, dir, dir_length);
-	path[dir_length] = dir_length != 0U && dir[dir_length - 1U] == '/' ? '\0' : '/';
+	path[dir_length] = '/';
+	path[dir_length + 1U] = '\0';
+	if(dir_length != 0U && dir[dir_length - 1U] == '/') path[dir_length] = '\0';
 	strcpy(path + strlen(path), name);
 	return path;
 }

@@ -79,7 +79,7 @@ path_exists(const char path[], int deref)
 	(void)deref;
 	struct stat st;
 	int is_symlink = 0;
-	return nv_lstat(path, &st, &is_symlink) == 0;
+	return nv_lstat(path, &st, &is_symlink, NULL) == 0;
 }
 
 int
