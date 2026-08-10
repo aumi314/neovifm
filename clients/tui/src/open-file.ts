@@ -1,4 +1,8 @@
+import { sanitizeDisplayText } from "./protocol.js"
+
 export type OpenPlatform = "darwin" | "linux" | "win32" | "freebsd" | "openbsd" | "sunos" | "aix"
+
+const MAX_OPEN_STDERR_BYTES = 4 * 1024
 
 function validateArgument(argument: string, label: string): void {
   if (argument.length === 0 || argument.includes("\0")) {
@@ -40,7 +44,7 @@ export function openCommand(path: string, platform: OpenPlatform = process.platf
   validateOpenPath(path)
   switch (platform) {
     case "darwin": return ["/usr/bin/open", path]
-    case "win32": return ["explorer.exe", path]
+    case "win32": throw new Error("Windows opener requires open-v1")
     case "linux":
     case "freebsd":
     case "openbsd":
@@ -52,6 +56,38 @@ export function openCommand(path: string, platform: OpenPlatform = process.platf
 
 export interface OpenProcess {
   readonly exited: Promise<number>
+  readonly stderr?: ReadableStream<Uint8Array>
+}
+
+async function readOpenDiagnostic(stream: ReadableStream<Uint8Array> | undefined): Promise<string> {
+  if (stream === undefined) return ""
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let retained = 0
+  try {
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      if (retained < MAX_OPEN_STDERR_BYTES) {
+        const remaining = MAX_OPEN_STDERR_BYTES - retained
+        const value = chunk.value.byteLength <= remaining ? chunk.value : chunk.value.subarray(0, remaining)
+        chunks.push(value)
+        retained += value.byteLength
+      }
+    }
+  } catch {
+    return ""
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(retained)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes).trim().replace(/\s+/g, " ")
+  return sanitizeDisplayText(text)
 }
 
 export interface OpenSpawnOptions {
@@ -77,8 +113,13 @@ async function runOpenCommand(command: readonly string[], dependencies: Pick<Ope
   } catch (error) {
     throw new Error(`Open failed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const exitCode = await process.exited
-  if (exitCode !== 0) throw new Error(`Open exited with status ${exitCode}`)
+  const [exitCode, diagnostic] = await Promise.all([
+    process.exited,
+    readOpenDiagnostic(process.stderr),
+  ])
+  if (exitCode !== 0) {
+    throw new Error(`Open exited with status ${exitCode}${diagnostic.length === 0 ? "" : `: ${diagnostic}`}`)
+  }
 }
 
 /** Starts a GUI opener without suspending or handing a shell an untrusted path. */
