@@ -60,7 +60,7 @@
 
 ## File Action Aliases
 
-这些别名只复用现有的 F5/F6/F8 action dispatcher，因此不会在客户端重新实现一套文件操作语义；删除仍由同一个确认对话框和 core snapshot 校验保护。
+这些别名只复用现有的 F5/F6/F8 action dispatcher，因此不会在客户端重新实现一套文件操作语义；删除仍由同一个确认对话框和 core snapshot 校验保护。只有 core hello 发布 `file-actions-v1` 时，F5--F8 和这些别名才可用；不具备 capability 的平台不会显示成可执行动作。
 
 | 按键/序列 | 模式 | 目标动作 | 当前状态 | 来源文件 | 测试建议 |
 | --- | --- | --- | --- | --- | --- |
