@@ -148,6 +148,7 @@ jobs:
           test -f src/vifm.exe
           test -f src/neovifm-core-probe.exe
           test -f src/neovifm-core-session.exe
+          test -f src/neovifm-win-open.exe
 
       - name: Run Windows C tests, including NeoVifm focused suite
         shell: msys2 {0}
@@ -201,6 +202,15 @@ jobs:
           }
           exit $exitCode
 
+      - name: Run Windows platform opener integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/windows-opener.test.ts 2>&1 |
+            Tee-Object -FilePath windows-opener-integration.log
+          exit $LASTEXITCODE
+
       - name: Check generated worktree and whitespace
         run: git diff --check
 
@@ -212,6 +222,7 @@ jobs:
           path: |
             tests/**/test-suite.log
             clients/tui/windows-actions-integration.log
+            clients/tui/windows-opener-integration.log
           if-no-files-found: ignore
 
   gate:

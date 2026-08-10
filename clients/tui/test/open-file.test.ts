@@ -67,4 +67,10 @@ describe("system open command", () => {
     expect(message).toContain("Open exited with status 7: No association�[31m")
     expect(message.length).toBeLessThan(4200)
   })
+
+  test("reports a missing resolved opener without trying another command", async () => {
+    await expect(openResolvedFile(["C:\\missing\\neovifm-win-open.exe", "C:\\Temp\\note.txt"], {
+      spawn: () => { throw new Error("ENOENT") },
+    })).rejects.toThrow("Open failed: ENOENT")
+  })
 })
