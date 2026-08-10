@@ -181,6 +181,26 @@ jobs:
           NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
         run: bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.ts
 
+      - name: Run Windows file action integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          $sourceRoot = "C:\neovifm-cross-volume-actions"
+          $destinationRoot = "D:\neovifm-cross-volume-actions"
+          New-Item -ItemType Directory -Force -Path $sourceRoot, $destinationRoot | Out-Null
+          $env:NEOVIFM_CROSS_VOLUME_SOURCE_ROOT = $sourceRoot
+          $env:NEOVIFM_CROSS_VOLUME_DESTINATION_ROOT = $destinationRoot
+          $exitCode = 0
+          try {
+            bun test ./integration/windows-actions.test.ts 2>&1 |
+              Tee-Object -FilePath windows-actions-integration.log
+            $exitCode = $LASTEXITCODE
+          } finally {
+            Remove-Item -LiteralPath $sourceRoot, $destinationRoot -Recurse -Force
+          }
+          exit $exitCode
+
       - name: Check generated worktree and whitespace
         run: git diff --check
 
@@ -189,7 +209,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Windows-test-logs
-          path: tests/**/test-suite.log
+          path: |
+            tests/**/test-suite.log
+            clients/tui/windows-actions-integration.log
           if-no-files-found: ignore
 
   gate:

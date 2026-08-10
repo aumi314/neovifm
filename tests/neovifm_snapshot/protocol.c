@@ -44,16 +44,19 @@ TEST(preview_session_records_are_versioned_and_keep_task_identity)
 			1U));
 	assert_string_equal("pane-tabs-v1", json_array_get_string(capabilities,
 			2U));
-	#if defined(__APPLE__) || defined(__linux__)
+	if(nv_fs_actions_supported())
+	{
 	assert_string_equal("file-actions-v1", json_array_get_string(capabilities,
 			3U));
 	assert_string_equal("open-v1", json_array_get_string(capabilities, 4U));
 	assert_string_equal("resource-tasks-v1", json_array_get_string(capabilities, 5U));
-	#else
+	}
+	else
+	{
 	assert_int_equal(5, json_array_get_count(capabilities));
 	assert_string_equal("open-v1", json_array_get_string(capabilities, 3U));
 	assert_string_equal("resource-tasks-v1", json_array_get_string(capabilities, 4U));
-	#endif
+	}
 	json_value_free(value);
 	nv_protocol_json_free(hello);
 
