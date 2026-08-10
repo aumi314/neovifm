@@ -108,7 +108,8 @@ vifm_src := $(wildcard $(addprefix ../src/, $(addsuffix *.c, $(vifm_src))))
 vifm_src := $(filter-out %/tags.c %/xxhash.c %/neovifm/core_probe.c %/neovifm/core_session.c %/neovifm/undo_compat.c %/neovifm/win_core_compat_win.c, $(vifm_src))
 
 # filter out generally non-testable or sources for another platform
-vifm_src := $(filter-out %/src/./vifm.c %/win_helper.c, $(vifm_src))
+vifm_src := $(filter-out %/src/./vifm.c %/win_helper.c \
+                         %/neovifm/win_open_helper.c, $(vifm_src))
 ifndef unix_env
     vifm_src := $(filter-out %/desktop.c %/media_menu.c %/mntent.c %_nix.c, \
                              $(vifm_src))

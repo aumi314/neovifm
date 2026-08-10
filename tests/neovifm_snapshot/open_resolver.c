@@ -38,9 +38,12 @@ TEST(empty_association_uses_platform_fallback)
 	nv_open_resolution_t resolution = {};
 	nv_open_error_t error = {};
 #ifdef _WIN32
-	assert_failure(nv_open_resolve(NV_OPEN_INTENT_OPEN, "/tmp/a b.pdf",
-			NULL, 0U, &resolution, &error));
-	assert_string_equal("unsupported-platform", error.code);
+	assert_success(nv_open_resolve(NV_OPEN_INTENT_OPEN,
+			"C:/Temp/a b-\xe4\xb8\xad\xe6\x96\x87.pdf", NULL, 0U, &resolution, &error));
+	assert_string_equal("platform", nv_open_source_name(resolution.source));
+	assert_int_equal(2, resolution.argc);
+	assert_non_null(strstr(resolution.argv[0], "neovifm-win-open.exe"));
+	assert_string_equal("C:/Temp/a b-\xe4\xb8\xad\xe6\x96\x87.pdf", resolution.argv[1]);
 #else
 	assert_success(nv_open_resolve(NV_OPEN_INTENT_OPEN, "/tmp/a b.pdf",
 			NULL, 0U, &resolution, &error));
@@ -171,8 +174,9 @@ TEST(vifm_rules_fall_back_only_for_open_and_bound_rule_count)
 	const int fallback = nv_open_resolve_rules(NV_OPEN_INTENT_OPEN,
 			"/tmp/unknown.bin", &viewer_rule, 1U, &resolution, &error);
 #ifdef _WIN32
-	assert_failure(fallback);
-	assert_string_equal("unsupported-platform", error.code);
+	assert_success(fallback);
+	assert_string_equal("platform", nv_open_source_name(resolution.source));
+	assert_non_null(strstr(resolution.argv[0], "neovifm-win-open.exe"));
 #else
 	assert_success(fallback);
 	assert_string_equal("platform", nv_open_source_name(resolution.source));
