@@ -125,7 +125,12 @@ neovifm_core_session_SOURCES := neovifm/core_session.c neovifm/win_core_compat_w
 neovifm_core_session_OBJECTS := $(neovifm_core_session_SOURCES:.c=.o)
 neovifm_core_session_EXECUTABLE := neovifm-core-session.exe
 
-DIRS := $(sort $(dir $(vifm_OBJECTS) $(neovifm_core_probe_OBJECTS) $(neovifm_core_session_OBJECTS)))
+neovifm_win_open_SOURCES := neovifm/win_open_helper.c
+neovifm_win_open_OBJECTS := $(neovifm_win_open_SOURCES:.c=.o)
+neovifm_win_open_RESOURCE := neovifm/win_open_helper_res.o
+neovifm_win_open_EXECUTABLE := neovifm-win-open.exe
+
+DIRS := $(sort $(dir $(vifm_OBJECTS) $(neovifm_core_probe_OBJECTS) $(neovifm_core_session_OBJECTS) $(neovifm_win_open_OBJECTS)))
 
 # determine list of output directories that don't exist at the moment
 out_dirs := $(sort $(dir $(vifm_OBJECTS) $(neovifm_core_probe_OBJECTS) $(neovifm_core_session_OBJECTS)))
@@ -138,7 +143,7 @@ win_helper_EXECUTABLE := win_helper.exe
 
 .PHONY: all clean check update_compile_info
 
-all: ../data/vifm-help.txt $(vifm_EXECUTABLE) $(neovifm_core_probe_EXECUTABLE) $(neovifm_core_session_EXECUTABLE) $(win_helper_EXECUTABLE)
+all: ../data/vifm-help.txt $(vifm_EXECUTABLE) $(neovifm_core_probe_EXECUTABLE) $(neovifm_core_session_EXECUTABLE) $(neovifm_win_open_EXECUTABLE) $(win_helper_EXECUTABLE)
 
 $(vifm_EXECUTABLE): $(vifm_OBJECTS) | ../build-aux/config.h
 	$(CC) $^ -o $@ $(LDFLAGS) $(LIBS)
@@ -155,6 +160,11 @@ $(neovifm_core_session_EXECUTABLE): $(neovifm_core_session_OBJECTS) | ../build-a
 ifeq ($(RELEASE),1)
 	$(STRIP) -S --strip-unneeded $@
 endif
+$(neovifm_win_open_EXECUTABLE): $(neovifm_win_open_OBJECTS) $(neovifm_win_open_RESOURCE) | ../build-aux/config.h
+	$(CC) $^ -o $@ -municode $(LDFLAGS) -lole32 -lshell32
+ifeq ($(RELEASE),1)
+	$(STRIP) -S --strip-unneeded $@
+endif
 $(win_helper_EXECUTABLE): $(win_helper_OBJECTS) | ../build-aux/config.h
 	$(CC) $^ -o $@ $(LDFLAGS)
 ifeq ($(RELEASE),1)
@@ -166,6 +176,9 @@ vifm.res: vifm.rc ../data/graphics/vifm.ico
 
 vifmres.o: vifm.res
 	$(WINDRES) --use-temp-file -i ./vifm.res -o vifmres.o
+
+$(neovifm_win_open_RESOURCE): neovifm/win_open_helper.rc neovifm/win_open_helper.manifest
+	$(WINDRES) --use-temp-file -I $(src_dir)/neovifm -i $(src_dir)/neovifm/win_open_helper.rc -o $@
 
 ../build-aux/config.h: Makefile.win
 	@echo Creating sample $@
