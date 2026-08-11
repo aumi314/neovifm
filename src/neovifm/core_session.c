@@ -1600,6 +1600,7 @@ process_command_line(nv_workspace_session_t *session, char line[],
 			if(apply_undo_command(session, action_queue, &error, &location) == 0)
 			{
 				*command_sequence = next_sequence;
+				nv_session_watcher_reset(watcher);
 				const int result = write_workspace(session, (*output_sequence)++,
 						*command_sequence, "command");
 				if(result == 0 && submit_active_preview(session, preview_queue,
