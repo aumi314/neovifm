@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-08-11
+最后核对：2026-08-12
 
 ## 阶段
 
@@ -39,6 +39,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
 - 当前功能和导师验收的主要基线。
 - 发布 `file-actions-v1`，使用 kqueue watcher。
+- kqueue 同时监听活动 tab 的目录与当前预览文件；外部目录项变化和已选文件内容变化都会发布 `trigger: "watch"` 并刷新预览。
 - developer 构建使用 Apple Clang 的单项 warning 兼容 flag。
 - 文件操作、undo、watcher 和 session 行为仍需 CI 持续证明。
 
@@ -48,7 +49,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 - protocol v3、导航、tabs、搜索、排序、预览、结构化 open 和 `file-actions-v1` 可构建和测试。
 - copy/move/mkdir/delete 使用 parent-FD-relative、no-follow、no-overwrite 规则；move 使用 `renameat2(RENAME_NOREPLACE)`，delete 默认调用 `/usr/bin/gio trash`。
 - undo 会刷新来源和目标 pane/tab；Trash helper 失败时保留原对象并恢复隔离文件。
-- 没有 macOS kqueue watcher。
+- session 复用 Vifm 的 filesystem watcher，以 50 ms 轮询窗口合并活动 tab 的外部变化；inactive tab 在切回活动状态后重新绑定并读取最新目录。
 
 ### Windows
 
@@ -62,7 +63,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 - copy、move、mkdir 可以 undo；delete 依赖 Recycle Bin 自身恢复，不新增协议级 delete undo。
 - `open-v1` 优先使用显式 Vifm association；没有匹配项时，core 发布相邻 `neovifm-win-open.exe` 的绝对 argv，由 helper 通过 Unicode `ShellExecuteExW` 调用系统默认关联。
 - helper 是内部运行时依赖，不是稳定 CLI；缺失或系统关联失败时明确报错，不退化到 `explorer.exe` 或 shell。
-- 没有 watcher。
+- session 使用 overlapped `ReadDirectoryChangesW` directory handle 监听活动 tab；支持中文和 extended-length 路径，外部目录变化会自动刷新 workspace 与当前预览。
 
 ## 当前能做什么
 
@@ -77,7 +78,6 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
 - 完整 Vifm keymap、marks、registers、visual、history 和命令语义。
 - 文件操作与 Vifm `ops`/`background`/`undo` 的最终收口。
-- Windows watcher；Linux watcher 仍未接入 NeoVifm session。
 - ZIP/SSH 跨平台真实挂载 E2E。
 - Kitty/Sixel 等原生图形协议、音频封面和完整媒体体验。
 - 安装器、发布包、稳定配置迁移和公开 release。
@@ -130,9 +130,10 @@ $env:NEOVIFM_CORE_SESSION = (Resolve-Path '..\..\src\neovifm-core-session.exe')
 bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.ts
 bun test ./integration/windows-actions.test.ts
 bun test ./integration/windows-opener.test.ts
+bun test ./integration/cross-platform-watcher.test.ts
 ```
 
-三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。
+三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。C2 实现 run `31515109163` 三平台与 gate 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`，覆盖中文、extended-length path、外部目录变化、预览更新和导航后重新绑定。
 
 ## 文档优先级
 

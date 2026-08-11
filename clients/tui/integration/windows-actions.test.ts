@@ -168,6 +168,11 @@ test.skipIf(process.platform !== "win32")("Windows core performs copy, move, mkd
   })
 
   await writeFile(resolve(right, "note.txt"), "existing")
+  await waitFor(() => {
+    const current = running.state()
+    return current.phase === "ready" && "session" in current
+      && current.workspace.right.entries.some((entry) => entry.name_display === "note.txt")
+  })
   state = sessionState(running.state())
   sequence = state.commandSequence + 1
   expect(await running.session.send(commandFor(state, "copy", "note.txt"))).toBe(true)

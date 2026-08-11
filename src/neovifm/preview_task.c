@@ -25,6 +25,8 @@
 #include <sys/wait.h>
 #else
 #include <io.h>
+#include <windows.h>
+#include <wchar.h>
 #include "../utils/utf8.h"
 #endif
 
@@ -114,9 +116,41 @@ static int preview_builtin(nv_preview_queue_t *queue, nv_preview_task_t *task,
 		char **content, int *truncated, const char **error_code, int *os_error);
 static void sanitize_preview_text(char content[], size_t length);
 #ifdef _WIN32
+static wchar_t *
+preview_wide_path(const char path[])
+{
+	wchar_t *wide = utf8_to_utf16(path);
+	if(wide == NULL) return NULL;
+	for(wchar_t *cursor = wide; *cursor != L'\0'; ++cursor)
+		if(*cursor == L'/') *cursor = L'\\';
+	const size_t length = wcslen(wide);
+	if(length < MAX_PATH - 1U || wcsncmp(wide, L"\\\\?\\", 4U) == 0)
+		return wide;
+	const int drive = length >= 3U && wide[1] == L':' && wide[2] == L'\\';
+	const int unc = length >= 2U && wide[0] == L'\\' && wide[1] == L'\\';
+	if(!drive && !unc) return wide;
+	const wchar_t prefix[] = L"\\\\?\\";
+	const wchar_t unc_prefix[] = L"\\\\?\\UNC\\";
+	const size_t prefix_length = unc ? 8U : 4U;
+	const size_t skipped = unc ? 2U : 0U;
+	wchar_t *const extended = malloc((prefix_length + length - skipped + 1U)*
+			sizeof(*extended));
+	if(extended == NULL)
+	{
+		free(wide);
+		return NULL;
+	}
+	memcpy(extended, unc ? unc_prefix : prefix,
+			prefix_length*sizeof(*extended));
+	memcpy(extended + prefix_length, wide + skipped,
+			(length - skipped + 1U)*sizeof(*extended));
+	free(wide);
+	return extended;
+}
+
 static int open_preview_file(const char path[], int flags)
 {
-	wchar_t *const wide_path = utf8_to_utf16(path);
+	wchar_t *const wide_path = preview_wide_path(path);
 	if(wide_path == NULL) return -1;
 	const int descriptor = _wopen(wide_path, flags);
 	free(wide_path);
