@@ -15,4 +15,7 @@
 - 第三轮 run `31511554012`：Linux/macOS 绿，Windows 初始长路径 preview 已通过；外部创建文件仍未触发 extended-path change notification。
 - Windows watcher 改用 overlapped `ReadDirectoryChangesW` directory handle。第四轮 run `31512408155` 的 watcher integration 已通过，但 focused C 证明 directory handle 会继续监听被改名的旧目录；同时 macOS action integration 暴露 action 终态后的重复 watcher refresh 竞态。
 - watcher poll 增加 volume serial/file index 路径 identity 复核；action terminal 刷新后重开 watcher，丢弃已被 action snapshot 覆盖的原生通知。
-- 最终实现 run `31513223577` 全绿：Linux、macOS、Windows 和 `CI / gate` 全部通过；Windows watcher integration `1 pass / 0 fail / 5 expects`。
+- run `31513223577` 首次全绿，证明 Windows directory handle、同路径替换检测和 macOS action terminal reset 有效。
+- 文档 HEAD run `31514000931` 暴露同步 undo 回包后的 kqueue 通知仍可能推进 snapshot revision；undo 成功后也重开 watcher，本地连续 5 轮 keyboard/action integration 通过。
+- run `31514355758` 的三平台 watcher 与 macOS action 全部通过；Windows 旧 no-overwrite fixture 在 session 启动后外部创建同名目标，却没有先等待 watcher workspace，因而正确收到 stale command 而不是 action terminal。测试改为先等待右 pane 观察到目标，再验证 no-overwrite。
+- 最终实现 run `31515109163` 全绿：Linux、macOS、Windows 和 `CI / gate` 全部通过；Windows watcher integration `1 pass / 0 fail / 5 expects`。
