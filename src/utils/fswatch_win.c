@@ -29,13 +29,16 @@
 /* Watcher data. */
 struct fswatch_t
 {
-	FILETIME dir_mtime;
-	HANDLE dir_watcher;
+	HANDLE directory;
+	HANDLE event;
+	OVERLAPPED overlapped;
+	unsigned char buffer[64U*1024U];
+	int pending;
 	wchar_t *wpath;
 };
 
-static int get_dir_mtime(const wchar_t dir_path[], FILETIME *ft);
 static wchar_t * wide_path(const char path[]);
+static int start_watch(fswatch_t *watcher);
 
 static wchar_t *
 wide_path(const char path[])
@@ -105,19 +108,31 @@ fswatch_create(const char path[])
 		return NULL;
 	}
 
-	if(get_dir_mtime(w->wpath, &w->dir_mtime) != 0)
+	w->directory = CreateFileW(w->wpath, FILE_LIST_DIRECTORY,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+			OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED |
+			FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if(w->directory == INVALID_HANDLE_VALUE)
 	{
 		free(w->wpath);
 		free(w);
 		return NULL;
 	}
-
-	w->dir_watcher = FindFirstChangeNotificationW(w->wpath, 1,
-			FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
-			FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
-			FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SECURITY);
-	if(w->dir_watcher == INVALID_HANDLE_VALUE)
+	w->event = CreateEventW(NULL, TRUE, FALSE, NULL);
+	if(w->event == NULL)
 	{
+		CloseHandle(w->directory);
+		free(w->wpath);
+		free(w);
+		return NULL;
+	}
+	memset(&w->overlapped, 0, sizeof(w->overlapped));
+	w->overlapped.hEvent = w->event;
+	w->pending = 0;
+	if(start_watch(w) != 0)
+	{
+		CloseHandle(w->event);
+		CloseHandle(w->directory);
 		free(w->wpath);
 		free(w);
 		return NULL;
@@ -131,7 +146,14 @@ fswatch_free(fswatch_t *w)
 {
 	if(w != NULL)
 	{
-		FindCloseChangeNotification(w->dir_watcher);
+		if(w->pending)
+		{
+			DWORD ignored;
+			CancelIo(w->directory);
+			(void)GetOverlappedResult(w->directory, &w->overlapped, &ignored, TRUE);
+		}
+		CloseHandle(w->event);
+		CloseHandle(w->directory);
 		free(w->wpath);
 		free(w);
 	}
@@ -140,53 +162,37 @@ fswatch_free(fswatch_t *w)
 FSWatchState
 fswatch_poll(fswatch_t *w)
 {
-	FILETIME ft;
-	if(get_dir_mtime(w->wpath, &ft) != 0)
+	const DWORD wait = WaitForSingleObject(w->event, 0U);
+	if(wait == WAIT_TIMEOUT) return FSWS_UNCHANGED;
+	if(wait != WAIT_OBJECT_0) return FSWS_ERRORED;
+	DWORD transferred = 0U;
+	if(!GetOverlappedResult(w->directory, &w->overlapped, &transferred, FALSE))
 	{
-		return FSWS_ERRORED;
+		const DWORD error = GetLastError();
+		if(error == ERROR_IO_INCOMPLETE) return FSWS_UNCHANGED;
+		if(error != ERROR_NOTIFY_ENUM_DIR) return FSWS_ERRORED;
 	}
-
-	int changed = CompareFileTime(&w->dir_mtime, &ft) != 0;
-	w->dir_mtime = ft;
-
-	if(WaitForSingleObject(w->dir_watcher, 0) == WAIT_OBJECT_0)
-	{
-		FindNextChangeNotification(w->dir_watcher);
-		changed = 1;
-	}
-
-	return (changed ? FSWS_UPDATED : FSWS_UNCHANGED);
+	w->pending = 0;
+	if(start_watch(w) != 0) return FSWS_ERRORED;
+	return FSWS_UPDATED;
 }
 
-/* Gets last directory modification time.  Returns non-zero on error, otherwise
- * zero is returned. */
 static int
-get_dir_mtime(const wchar_t dir_path[], FILETIME *ft)
+start_watch(fswatch_t *watcher)
 {
-	const size_t length = wcslen(dir_path);
-	const int needs_separator = length != 0U && dir_path[length - 1U] != L'\\';
-	wchar_t *const selfref_path = malloc((length + (size_t)needs_separator + 2U)*
-			sizeof(*selfref_path));
-	if(selfref_path == NULL) return 1;
-	memcpy(selfref_path, dir_path, length*sizeof(*selfref_path));
-	if(needs_separator) selfref_path[length] = L'\\';
-	selfref_path[length + (size_t)needs_separator] = L'.';
-	selfref_path[length + (size_t)needs_separator + 1U] = L'\0';
-
-	const HANDLE hfile = CreateFileW(selfref_path, 0,
-			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-			OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-	free(selfref_path);
-
-	if(hfile == INVALID_HANDLE_VALUE)
-	{
+	ResetEvent(watcher->event);
+	memset(&watcher->overlapped, 0, sizeof(watcher->overlapped));
+	watcher->overlapped.hEvent = watcher->event;
+	if(!ReadDirectoryChangesW(watcher->directory, watcher->buffer,
+			sizeof(watcher->buffer), TRUE,
+			FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+			FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+			FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION |
+			FILE_NOTIFY_CHANGE_SECURITY,
+			NULL, &watcher->overlapped, NULL))
 		return 1;
-	}
-
-	const int error = GetFileTime(hfile, NULL, NULL, ft) == FALSE;
-	CloseHandle(hfile);
-
-	return error;
+	watcher->pending = 1;
+	return 0;
 }
 
 /* vim: set tabstop=2 softtabstop=2 shiftwidth=2 noexpandtab cinoptions-=(0 : */
