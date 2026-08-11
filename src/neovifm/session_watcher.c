@@ -39,6 +39,8 @@ typedef struct
 	int has_identity;
 #ifdef __APPLE__
 	int descriptor;
+	int preview_descriptor;
+	char *preview_path_bytes_hex;
 #else
 	fswatch_t *watch;
 #endif
@@ -63,6 +65,11 @@ static int binding_matches(const nv_session_pane_watcher_t *pane,
 static int hex_digit(char character);
 static char *hex_decode(const char hex[]);
 static uint64_t monotonic_ms(void);
+#ifdef __APPLE__
+static void stop_preview(nv_session_pane_watcher_t *pane);
+static void sync_preview(nv_session_watcher_t *watcher,
+		nv_session_pane_watcher_t *pane, const nv_pane_snapshot_t *snapshot);
+#endif
 static void stop_pane(nv_session_pane_watcher_t *pane);
 static int bind_pane(nv_session_watcher_t *watcher, nv_session_pane_t pane,
 		const nv_pane_snapshot_t *snapshot);
@@ -139,10 +146,69 @@ monotonic_ms(void)
 #endif
 }
 
+#ifdef __APPLE__
+static void
+stop_preview(nv_session_pane_watcher_t *pane)
+{
+	if(pane->preview_descriptor >= 0) close(pane->preview_descriptor);
+	pane->preview_descriptor = -1;
+	free(pane->preview_path_bytes_hex);
+	pane->preview_path_bytes_hex = NULL;
+}
+
+static void
+sync_preview(nv_session_watcher_t *watcher,
+		nv_session_pane_watcher_t *pane, const nv_pane_snapshot_t *snapshot)
+{
+	const nv_pane_entry_t *entry = NULL;
+	if(snapshot->cursor >= 0 && (size_t)snapshot->cursor < snapshot->entry_count)
+	{
+		const nv_pane_entry_t *const selected = &snapshot->entries[snapshot->cursor];
+		if(selected->kind == NV_ENTRY_FILE || selected->kind == NV_ENTRY_EXECUTABLE)
+			entry = selected;
+	}
+	const char *const path_hex = entry == NULL ? NULL : entry->path_bytes_hex;
+	if(pane->preview_descriptor >= 0 && path_hex != NULL &&
+			pane->preview_path_bytes_hex != NULL &&
+			strcmp(pane->preview_path_bytes_hex, path_hex) == 0)
+		return;
+	stop_preview(pane);
+	if(path_hex == NULL) return;
+	pane->preview_path_bytes_hex = strdup(path_hex);
+	char *const path = hex_decode(path_hex);
+	if(pane->preview_path_bytes_hex == NULL || path == NULL)
+	{
+		free(path);
+		stop_preview(pane);
+		return;
+	}
+	const int descriptor = open(path, O_EVTONLY);
+	free(path);
+	if(descriptor < 0)
+	{
+		stop_preview(pane);
+		return;
+	}
+	struct kevent change;
+	EV_SET(&change, (uintptr_t)descriptor, EVFILT_VNODE,
+		EV_ADD | EV_ENABLE | EV_CLEAR,
+		NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB,
+		0, NULL);
+	if(kevent(watcher->queue, &change, 1, NULL, 0, NULL) == -1)
+	{
+		close(descriptor);
+		stop_preview(pane);
+		return;
+	}
+	pane->preview_descriptor = descriptor;
+}
+#endif
+
 static void
 stop_pane(nv_session_pane_watcher_t *pane)
 {
 #ifdef __APPLE__
+	stop_preview(pane);
 	if(pane->descriptor >= 0) close(pane->descriptor);
 	pane->descriptor = -1;
 #else
@@ -202,6 +268,8 @@ nv_session_watcher_alloc(void)
 	watcher->queue = kqueue();
 	watcher->panes[0].descriptor = -1;
 	watcher->panes[1].descriptor = -1;
+	watcher->panes[0].preview_descriptor = -1;
+	watcher->panes[1].preview_descriptor = -1;
 	if(watcher->queue < 0)
 	{
 		free(watcher);
@@ -235,9 +303,13 @@ nv_session_watcher_sync(nv_session_watcher_t *watcher,
 	for(nv_session_pane_t pane = NV_SESSION_LEFT; pane <= NV_SESSION_RIGHT; ++pane)
 	{
 		const nv_pane_snapshot_t *const snapshot = pane_snapshot(session, pane);
-		if(binding_matches(pane_watcher(watcher, pane), snapshot)) continue;
-		if(bind_pane(watcher, pane, snapshot) != 0 && failed_panes != NULL)
+		nv_session_pane_watcher_t *const target = pane_watcher(watcher, pane);
+		if(!binding_matches(target, snapshot) &&
+				bind_pane(watcher, pane, snapshot) != 0 && failed_panes != NULL)
 			*failed_panes |= pane_mask(pane);
+#ifdef __APPLE__
+		if(binding_matches(target, snapshot)) sync_preview(watcher, target, snapshot);
+#endif
 	}
 }
 
@@ -252,7 +324,7 @@ nv_session_watcher_poll(nv_session_watcher_t *watcher,
 	if(now != 0U && now < watcher->next_poll_ms) return;
 	watcher->next_poll_ms = now + NV_SESSION_WATCH_INTERVAL_MS;
 #ifdef __APPLE__
-	struct kevent events[2];
+	struct kevent events[4];
 	const struct timespec timeout = {};
 	const int count = kevent(watcher->queue, NULL, 0, events,
 		sizeof(events)/sizeof(events[0]), &timeout);
@@ -274,8 +346,17 @@ nv_session_watcher_poll(nv_session_watcher_t *watcher,
 				pane <= NV_SESSION_RIGHT; ++pane)
 		{
 			nv_session_pane_watcher_t *const target = pane_watcher(watcher, pane);
+			if(target->preview_descriptor >= 0 &&
+				events[i].ident == (uintptr_t)target->preview_descriptor)
+			{
+				if((events[i].flags & EV_ERROR) == 0 &&
+					events[i].filter == EVFILT_VNODE && changed_panes != NULL)
+					*changed_panes |= pane_mask(pane);
+				stop_preview(target);
+				continue;
+			}
 			if(target->descriptor < 0 ||
-				events[i].ident != (uintptr_t)target->descriptor) continue;
+					events[i].ident != (uintptr_t)target->descriptor) continue;
 			if((events[i].flags & EV_ERROR) != 0)
 			{
 				if(failed_panes != NULL) *failed_panes |= pane_mask(pane);
