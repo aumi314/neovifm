@@ -182,6 +182,15 @@ jobs:
           NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
         run: bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.ts
 
+      - name: Run cross-platform watcher integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/cross-platform-watcher.test.ts 2>&1 |
+            Tee-Object -FilePath windows-watcher-integration.log
+          exit $LASTEXITCODE
+
       - name: Run Windows file action integration
         working-directory: clients/tui
         env:
@@ -221,6 +230,7 @@ jobs:
           name: Windows-test-logs
           path: |
             tests/**/test-suite.log
+            clients/tui/windows-watcher-integration.log
             clients/tui/windows-actions-integration.log
             clients/tui/windows-opener-integration.log
           if-no-files-found: ignore
