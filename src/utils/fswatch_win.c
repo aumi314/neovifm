@@ -42,6 +42,10 @@ wide_path(const char path[])
 {
 	wchar_t *absolute = utf8_to_utf16(path);
 	if(absolute == NULL) return NULL;
+	/* Preserve the classic watcher path for ordinary paths.  Some Win32 change
+	 * notification behavior differs for extended paths, while the prefix is
+	 * only needed once the path can exceed MAX_PATH. */
+	if(wcslen(absolute) < MAX_PATH - 2U) return absolute;
 	if(wcsncmp(absolute, L"\\\\?\\", 4U) != 0)
 	{
 		const size_t initial_length = wcslen(absolute);
