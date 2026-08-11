@@ -21,11 +21,9 @@
 #include <windows.h>
 
 #include <stdlib.h> /* free() malloc() */
-#include <string.h> /* strdup */
+#include <string.h> /* memcpy strdup */
+#include <wchar.h> /* wchar_t wcslen() wcsncmp() */
 
-#include "../compat/fs_limits.h"
-#include "macros.h"
-#include "str.h"
 #include "utf8.h"
 
 /* Watcher data. */
@@ -37,6 +35,55 @@ struct fswatch_t
 };
 
 static int get_dir_mtime(const wchar_t dir_path[], FILETIME *ft);
+static wchar_t * wide_path(const char path[]);
+
+static wchar_t *
+wide_path(const char path[])
+{
+	wchar_t *absolute = utf8_to_utf16(path);
+	if(absolute == NULL) return NULL;
+	if(wcsncmp(absolute, L"\\\\?\\", 4U) != 0)
+	{
+		const size_t initial_length = wcslen(absolute);
+		if(initial_length < 3U ||
+				!((absolute[0] >= L'A' && absolute[0] <= L'Z') ||
+				  (absolute[0] >= L'a' && absolute[0] <= L'z')) ||
+				absolute[1] != L':' ||
+				(absolute[2] != L'\\' && absolute[2] != L'/'))
+		{
+			const DWORD required = GetFullPathNameW(absolute, 0U, NULL, NULL);
+			if(required == 0U) { free(absolute); return NULL; }
+			wchar_t *const full = malloc((size_t)required*sizeof(*full));
+			if(full == NULL) { free(absolute); return NULL; }
+			if(GetFullPathNameW(absolute, required, full, NULL) == 0U)
+			{
+				free(full);
+				free(absolute);
+				return NULL;
+			}
+			free(absolute);
+			absolute = full;
+		}
+		const int unc = absolute[0] == L'\\' && absolute[1] == L'\\';
+		const size_t length = wcslen(absolute);
+		const wchar_t prefix[] = L"\\\\?\\";
+		const wchar_t unc_prefix[] = L"\\\\?\\UNC\\";
+		const size_t prefix_length = unc ? 8U : 4U;
+		const size_t skipped = unc ? 2U : 0U;
+		wchar_t *const extended = malloc((prefix_length + length - skipped + 1U)*
+				sizeof(*extended));
+		if(extended == NULL) { free(absolute); return NULL; }
+		memcpy(extended, unc ? unc_prefix : prefix,
+				prefix_length*sizeof(*extended));
+		memcpy(extended + prefix_length, absolute + skipped,
+				(length - skipped + 1U)*sizeof(*extended));
+		free(absolute);
+		absolute = extended;
+	}
+	for(wchar_t *cursor = absolute; *cursor != L'\0'; ++cursor)
+		if(*cursor == L'/') *cursor = L'\\';
+	return absolute;
+}
 
 fswatch_t *
 fswatch_create(const char path[])
@@ -47,7 +94,7 @@ fswatch_create(const char path[])
 		return NULL;
 	}
 
-	w->wpath = utf8_to_utf16(path);
+	w->wpath = wide_path(path);
 	if(w->wpath == NULL)
 	{
 		free(w);
@@ -112,22 +159,27 @@ fswatch_poll(fswatch_t *w)
 static int
 get_dir_mtime(const wchar_t dir_path[], FILETIME *ft)
 {
-	wchar_t selfref_path[PATH_MAX + 1];
-	HANDLE hfile;
-	int error;
+	const size_t length = wcslen(dir_path);
+	const int needs_separator = length != 0U && dir_path[length - 1U] != L'\\';
+	wchar_t *const selfref_path = malloc((length + (size_t)needs_separator + 2U)*
+			sizeof(*selfref_path));
+	if(selfref_path == NULL) return 1;
+	memcpy(selfref_path, dir_path, length*sizeof(*selfref_path));
+	if(needs_separator) selfref_path[length] = L'\\';
+	selfref_path[length + (size_t)needs_separator] = L'.';
+	selfref_path[length + (size_t)needs_separator + 1U] = L'\0';
 
-	vifm_swprintf(selfref_path, ARRAY_LEN(selfref_path), L"%" WPRINTF_WSTR L"/.",
-			dir_path);
-
-	hfile = CreateFileW(selfref_path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+	const HANDLE hfile = CreateFileW(selfref_path, 0,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
 			OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	free(selfref_path);
 
 	if(hfile == INVALID_HANDLE_VALUE)
 	{
 		return 1;
 	}
 
-	error = GetFileTime(hfile, NULL, NULL, ft) == FALSE;
+	const int error = GetFileTime(hfile, NULL, NULL, ft) == FALSE;
 	CloseHandle(hfile);
 
 	return error;

@@ -150,12 +150,14 @@ am_neovifm_core_session_OBJECTS = neovifm/core_session.$(OBJEXT) \
 	neovifm/pane_snapshot.$(OBJEXT) \
 	neovifm/workspace_session.$(OBJEXT) \
 	neovifm/session_platform.$(OBJEXT) \
+	neovifm/session_watcher.$(OBJEXT) \
 	neovifm/undo_bridge.$(OBJEXT) neovifm/undo_compat.$(OBJEXT) \
 	neovifm/action_task.$(OBJEXT) neovifm/resource_task.$(OBJEXT) \
 	neovifm/preview_task.$(OBJEXT) neovifm/snapshot_json.$(OBJEXT) \
 	undo.$(OBJEXT) compat/neovifm_fs.$(OBJEXT) \
-	compat/reallocarray.$(OBJEXT) utils/parson.$(OBJEXT) \
-	utils/utf8proc.$(OBJEXT)
+	compat/reallocarray.$(OBJEXT) utils/filemon.$(OBJEXT) \
+	utils/fswatch_nix.$(OBJEXT) utils/parson.$(OBJEXT) \
+	utils/trie.$(OBJEXT) utils/utf8proc.$(OBJEXT)
 neovifm_core_session_OBJECTS = $(am_neovifm_core_session_OBJECTS)
 neovifm_core_session_LDADD = $(LDADD)
 am_vifm_OBJECTS = cfg/config.$(OBJEXT) cfg/info.$(OBJEXT) \
@@ -411,6 +413,7 @@ am__depfiles_remade = ./$(DEPDIR)/args.Po ./$(DEPDIR)/background.Po \
 	neovifm/$(DEPDIR)/preview_task.Po \
 	neovifm/$(DEPDIR)/resource_mount.Po \
 	neovifm/$(DEPDIR)/resource_task.Po \
+	neovifm/$(DEPDIR)/session_watcher.Po \
 	neovifm/$(DEPDIR)/snapshot_json.Po \
 	neovifm/$(DEPDIR)/undo_bridge.Po \
 	neovifm/$(DEPDIR)/undo_compat.Po \
@@ -863,6 +866,7 @@ neovifm_core_session_SOURCES = \
 	neovifm/pane_snapshot.c neovifm/pane_snapshot.h \
 	neovifm/workspace_session.c neovifm/workspace_session.h \
 	neovifm/session_platform.c neovifm/session_platform.h \
+	neovifm/session_watcher.c neovifm/session_watcher.h \
 	neovifm/undo_bridge.c neovifm/undo_bridge.h \
 	neovifm/undo_compat.c \
 	neovifm/action_task.c neovifm/action_task.h \
@@ -872,7 +876,10 @@ neovifm_core_session_SOURCES = \
 	undo.c undo.h \
 	compat/neovifm_fs.c compat/neovifm_fs.h \
 	compat/reallocarray.c compat/reallocarray.h \
+	utils/filemon.c utils/filemon.h \
+	utils/fswatch_nix.c utils/fswatch.h \
 	utils/parson.c utils/parson.h \
+	utils/trie.c utils/trie.h \
 	utils/utf8proc.c utils/utf8proc.h utils/utf8proc_data.inc
 
 dist_bin_SCRIPTS = vifm-pause vifm-screen-split vifm-convert-dircolors
@@ -1303,6 +1310,8 @@ neovifm/pane_snapshot.$(OBJEXT): neovifm/$(am__dirstamp) \
 neovifm/workspace_session.$(OBJEXT): neovifm/$(am__dirstamp) \
 	neovifm/$(DEPDIR)/$(am__dirstamp)
 neovifm/session_platform.$(OBJEXT): neovifm/$(am__dirstamp) \
+	neovifm/$(DEPDIR)/$(am__dirstamp)
+neovifm/session_watcher.$(OBJEXT): neovifm/$(am__dirstamp) \
 	neovifm/$(DEPDIR)/$(am__dirstamp)
 neovifm/snapshot_json.$(OBJEXT): neovifm/$(am__dirstamp) \
 	neovifm/$(DEPDIR)/$(am__dirstamp)
@@ -2010,6 +2019,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/preview_task.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/resource_mount.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/resource_task.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/session_watcher.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/snapshot_json.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/undo_bridge.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@neovifm/$(DEPDIR)/undo_compat.Po@am__quote@ # am--include-marker
@@ -3098,6 +3108,7 @@ distclean: distclean-am
 	-rm -f neovifm/$(DEPDIR)/preview_task.Po
 	-rm -f neovifm/$(DEPDIR)/resource_mount.Po
 	-rm -f neovifm/$(DEPDIR)/resource_task.Po
+	-rm -f neovifm/$(DEPDIR)/session_watcher.Po
 	-rm -f neovifm/$(DEPDIR)/snapshot_json.Po
 	-rm -f neovifm/$(DEPDIR)/undo_bridge.Po
 	-rm -f neovifm/$(DEPDIR)/undo_compat.Po
@@ -3384,6 +3395,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f neovifm/$(DEPDIR)/preview_task.Po
 	-rm -f neovifm/$(DEPDIR)/resource_mount.Po
 	-rm -f neovifm/$(DEPDIR)/resource_task.Po
+	-rm -f neovifm/$(DEPDIR)/session_watcher.Po
 	-rm -f neovifm/$(DEPDIR)/snapshot_json.Po
 	-rm -f neovifm/$(DEPDIR)/undo_bridge.Po
 	-rm -f neovifm/$(DEPDIR)/undo_compat.Po
