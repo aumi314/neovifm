@@ -13,9 +13,9 @@ NeoVifm 的主线入口是 OpenTUI，当前阶段是 **Workbench Alpha 0 (unrele
 - `neovifm-core-probe` 发布无用户配置污染的目录快照；`neovifm-core-session` 为 OpenTUI 提供版本化 JSONL 会话协议。
 - `clients/tui` 已接入双 pane、pane tab、Vifm 风格键位基础、搜索、排序、任务中心、资源任务和 F3/Space 文本与媒体预览。
 - 当前仍未完成：完整 Vifm filetype/fileviewer/running 语义、真实 ZIP/SSH 挂载 E2E、图形图片/PDF/视频/音频渲染和完整低色彩/终端尺寸验收。
-- `file-actions-v1` 当前在 macOS、Linux 和 Windows 10+ 提供；macOS 使用 kqueue watcher，Linux/Windows session 暂无 watcher。Windows 文件操作使用 Win32 handle identity、no-overwrite/no-follow、同卷 move 和 Recycle Bin delete；默认 Win32 opener 仍未完成。
+- `file-actions-v1` 当前在 macOS、Linux 和 Windows 10+ 提供；macOS 使用 kqueue watcher，Linux/Windows session 暂无 watcher。Windows 文件操作使用 Win32 handle identity、no-overwrite/no-follow、同卷 move 和 Recycle Bin delete；默认文件关联通过内部 `neovifm-win-open.exe` 和 Unicode `ShellExecuteExW` 打开。
 - 经典 Vifm 默认行为不被替换；OpenTUI 缺少 capability 时必须降级为可读的文本或结构化错误。
-- 当前平台和能力事实见 [CURRENT_STATE](docs/CURRENT_STATE.md)，架构决策见 [ADR 0001](docs/adr/0001-hybrid-core-opentui.md)，协议见 [NeoVifm Core Protocol](protocol/README.md)。
+- 当前平台和能力事实见 [CURRENT_STATE](docs/CURRENT_STATE.md)，混合架构见 [ADR 0001](docs/adr/0001-hybrid-core-opentui.md)，Windows 安全操作与 opener 见 [ADR 0002](docs/adr/0002-windows-safe-file-actions.md) 和 [ADR 0003](docs/adr/0003-windows-native-opener.md)，协议见 [NeoVifm Core Protocol](protocol/README.md)。
 
 ## 产品方向
 
@@ -174,6 +174,8 @@ env -u VIFM -u MYVIFMRC make check
 测试必须串行执行。现有 suite 会使用共享相对路径，`make -jN check` 存在竞态。
 
 Windows 的 MSYS2/MINGW64 构建、focused C 和真实 core integration 命令见 [CURRENT_STATE](docs/CURRENT_STATE.md)。
+
+Windows 构建会同时生成内部 `neovifm-win-open.exe`。它必须与 `neovifm-core-session.exe` 位于同一目录，不是面向用户的稳定命令，也不能单独代替未来安装包。
 
 ## 上游同步
 
