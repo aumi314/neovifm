@@ -21,4 +21,4 @@
 - Linux real integration：`22 pass / 10 platform skip`，watcher case `1 pass / 5 expects`。
 - TUI coverage：`147 pass / 0 fail`，functions `92.23%`，lines `97.12%`；typecheck 与 audit 通过。
 - `session_watcher.c`、`fswatch_win.c` 与 Windows preview boundary 通过 MinGW64 `-Wall -Werror` 交叉编译。
-- 最终实现 run `31513223577` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`。
+- 最终实现 run `31515109163` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`。
