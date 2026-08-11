@@ -41,13 +41,14 @@
 - stdin command 必须是 `{protocol,version:2,type:"command",sequence,payload}`，payload action 仅允许 `focus`（`pane` 为 left/right）、`move`（delta 为 -1/1）、`enter`、`parent`、`toggle-selection`、`refresh`；不接受任意 shell、路径或文件操作。
 - 不可执行的 command 输出可恢复 `command-error`（含 command_sequence/code/message/retryable），客户端保留上一份 workspace。协议/核心不可恢复错误才输出 `error` 并退出。
 - v2 每条 stdout record 仍受 4 MiB 与 4096 combined entries 限制；client 对单个 session 设置 64 MiB/1,000,000 record 的硬边界，并不会累积历史 workspace。
-- watcher 仅存在于 TUI 持有的 macOS 子进程：它监听两个 pane 的 cwd，并在目录进入/返回后重开对应 FD。watch 刷新失败只停用该 pane watcher 并写入 stderr，stdin command session 继续运行；后台不会接触 TUI 状态。
+- M1b 首次实现的 watcher 仅覆盖 macOS；当前 v3 session 的跨平台行为见下一节。watch 刷新失败只停用对应 pane watcher 并写入 stderr，stdin command session 继续运行；后台不会接触 TUI 状态。
 
 ## M2 可取消预览与文件任务 Session v3
 
 - hello capability 包含 `preview-session-v3`、`workspace-sort-v1`、`pane-tabs-v1`、`open-v1` 和 `resource-tasks-v1`。`file-actions-v1` 在 macOS、Linux 和 Windows 10+ headless session 发布；低于 Windows 10 和尚未具备同等原子文件操作的平台不会发布。Linux delete 默认调用 `/usr/bin/gio trash`，macOS 使用 `/usr/bin/trash`，Windows 使用 Recycle Bin；测试可用 `NEOVIFM_TRASH_EXECUTABLE` 注入绝对路径 helper。capability 表示协议入口存在，不代表外部 helper 或平台 E2E 已完成。v3 保留 v2 完整 `workspace-snapshot` 与 command acknowledgement 语义；preview、action 和 resource task 使用各自的生命周期 record。
 - task 与 preview 都必须携带 task id、generation、pane、preview kind、cwd/path 原始 hex identity、状态和（适用时）结构化 error。完成 preview 额外携带至多 64 KiB 的文本；过时 generation 的 preview 不得覆盖新 generation。请求在 deadline 前未开始或在受限读取循环中超时，会以 `failed` / `preview-timeout` 终态发布。
 - v3 session 在主线程从当前不可变 pane snapshot 构造 preview request（pane、generation、cwd/path 原始 hex 与 kind），每次 cursor/focus 工作区更新都会替换同 pane 的旧请求。stdin 不接受 shell command；所有交互都必须匹配 schema 中的有限 action。
+- v3 session 在 macOS、Linux 和 Windows 监听两个 pane 的活动 tab，并以既有 `trigger: "watch"` 发布合并后的完整 workspace；不新增 capability 或 DTO。macOS 使用 kqueue 监听目录和当前预览文件，Linux 复用 filesystem watcher，Windows 使用 overlapped Unicode directory handle。watch refresh 会重新提交活动预览；inactive tab 不保持 watcher，激活后按最新 snapshot 重新绑定。文件 action queue 忙碌时 watcher 不刷新，避免和 action 终态刷新竞争。
 - v3 导航 command 在 v2 基础上增加 `focus-next`、`move-to`、`sort-cycle` 与 `sort-by`。`focus-next` 由 core 基于当前 workspace 原子切换 pane；`move-to` 的 `target` 仅允许 `first`/`last`；排序也由 core 重排不可变 snapshot 并保留 cursor identity。
 - 只有 hello 发布 `file-actions-v1` 时，client 才可发送 `copy`、`move-files`、`mkdir` 与 `delete`。命令必须携带点击/按键当时的 pane、cwd hex、snapshot revision、cwd 的 device/inode/ctime identity；每个 target 必须携带 path hex、device/inode/ctime 和 kind。copy/move 还必须携带目标 pane 的同一组 identity。core 只接受仍属于对应不可变 snapshot 的 target；worker 在 POSIX 使用 pinned parent FD、在 Windows 使用 pinned directory/entry handle 重新校验真实目录和 entry identity，不执行 display path 或任意外部路径。
 - 文件动作由单 worker action queue 执行，主循环仍可处理 `hjkl`、Tab、watcher 与 F10。提交后立即以不变 workspace 的 `trigger: "command"` 确认；queue 依次发 `action-task` 的 queued/running/terminal record。terminal 前主线程刷新双 pane 并发 `trigger: "action"`，随后 event 给出 completed_count、failed_index、partial、error_code 和 os_error。队列只接受一个未完成动作，额外请求以可恢复 `action-queue-full` 拒绝；EOF/F10 会取消未完成动作。

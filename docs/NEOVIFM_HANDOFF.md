@@ -31,7 +31,7 @@ bun run dev
 
 Linux 使用同一流程，但 configure 不需要 Apple Clang flag。完整验证命令见 `docs/CURRENT_STATE.md`。
 
-Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core integration 命令见 `docs/CURRENT_STATE.md`。Windows 10+ 已能运行 Alpha 0 会话、安全文件操作和系统默认 opener，但仍没有 watcher 与安装器。
+Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core integration 命令见 `docs/CURRENT_STATE.md`。Windows 10+ 已能运行 Alpha 0 会话、安全文件操作、系统默认 opener 和活动 tab watcher，但仍没有安装器。
 
 ## 当前功能
 
@@ -41,12 +41,14 @@ Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core int
 - POSIX/macOS 和 Windows 正常退出 session 保存和恢复。
 - macOS、Linux 和 Windows 10+ 的 `file-actions-v1` 文件任务和 undo bridge。
 - Windows 通过内部 `neovifm-win-open.exe` 和 Unicode `ShellExecuteExW` 使用系统默认文件关联。
+- macOS、Linux 和 Windows session 都会自动刷新活动 tab 的目录与当前预览；inactive tab 在激活时重新绑定。
 
 ## 已知边界
 
 - Windows 10+ 使用 Win32 handle identity 和 extended-length Unicode path；move 不跨卷 copy-delete，delete 必须经过同目录隔离和 Recycle Bin。
 - Linux move 使用 `renameat2(RENAME_NOREPLACE)`，delete 默认通过 `/usr/bin/gio trash`，测试可注入 `NEOVIFM_TRASH_EXECUTABLE`。
-- Windows 没有 watcher；`neovifm-win-open.exe` 必须与 core 位于同一目录，且不是稳定用户 CLI。
+- watcher 只保持两个 pane 当前活动 tab 的系统资源，不常驻监听所有 inactive tab；文件 action worker 忙碌时暂缓 watcher refresh，动作终态刷新后恢复。
+- `neovifm-win-open.exe` 必须与 core 位于同一目录，且不是稳定用户 CLI。
 - ZIP/SSH 真实挂载依赖 helper，跨平台 E2E 未完成。
 - Vifm marks、registers、完整 visual/history、批量重命名、compare/sync 和完整 background facade 未完成。
 - 安装、发布、插件 SDK、agent session 和全仓品牌重命名不属于 Alpha 0 基线。
