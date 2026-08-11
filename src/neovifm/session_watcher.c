@@ -392,5 +392,17 @@ nv_session_watcher_disable(nv_session_watcher_t *watcher,
 	if(watcher != NULL) stop_pane(pane_watcher(watcher, pane));
 }
 
+void
+nv_session_watcher_reset(nv_session_watcher_t *watcher)
+{
+	if(watcher == NULL) return;
+	for(size_t i = 0U; i < 2U; ++i)
+	{
+		stop_pane(&watcher->panes[i]);
+		free(watcher->panes[i].cwd_bytes_hex);
+		watcher->panes[i].cwd_bytes_hex = NULL;
+	}
+}
+
 /* vim: set tabstop=2 softtabstop=2 shiftwidth=2 noexpandtab cinoptions-=(0 : */
 /* vim: set cinoptions+=t0 filetype=c : */
