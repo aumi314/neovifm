@@ -115,7 +115,7 @@ static int drain_action_events(nv_action_queue_t *queue,
 		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
 		uint64_t *preview_generation,
 		nv_pending_action_context_t **pending_actions,
-		size_t *retry_history_count);
+		size_t *retry_history_count, nv_session_watcher_t *watcher);
 static int drain_resource_events(nv_resource_task_queue_t *queue,
 		nv_workspace_session_t *session, unsigned int *output_sequence,
 		nv_preview_queue_t *preview_queue, uint64_t *preview_generation,
@@ -1992,7 +1992,7 @@ drain_action_events(nv_action_queue_t *queue,
 		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
 		uint64_t *preview_generation,
 		nv_pending_action_context_t **pending_actions,
-		size_t *retry_history_count)
+		size_t *retry_history_count, nv_session_watcher_t *watcher)
 {
 	if(queue == NULL) return 0;
 	if(nv_action_queue_failed(queue))
@@ -2092,6 +2092,10 @@ drain_action_events(nv_action_queue_t *queue,
 					nv_workspace_session_refresh_pane(session, NV_SESSION_RIGHT,
 							&error) != 0;
 			}
+			/* The action terminal snapshot already includes these filesystem
+			 * changes.  Reopen watchers so queued native notifications cannot
+			 * immediately invalidate the snapshot revision as a duplicate watch. */
+			if(!refresh_failed) nv_session_watcher_reset(watcher);
 			if(!refresh_failed && write_workspace(session, (*output_sequence)++,
 					command_sequence, "action") != 0) refresh_failed = 1;
 			if(refresh_failed)
@@ -2447,7 +2451,7 @@ core_main(int argc, char *argv[])
 		if(drain_preview_events(preview_queue, &output_sequence) != 0 ||
 				drain_action_events(action_queue, &session, &output_sequence,
 					command_sequence, preview_queue, &preview_generation,
-					&pending_actions, &retry_history_count) != 0 ||
+					&pending_actions, &retry_history_count, watcher) != 0 ||
 				drain_resource_events(resource_queue, &session, &output_sequence,
 					preview_queue, &preview_generation, &pending_resources,
 					watcher) != 0 ||
@@ -2480,7 +2484,7 @@ core_main(int argc, char *argv[])
 	nv_resource_task_queue_cancel_all(resource_queue);
 	if(drain_action_events(action_queue, &session, &output_sequence,
 				command_sequence, preview_queue, &preview_generation,
-				&pending_actions, &retry_history_count) != 0) result = 1;
+				&pending_actions, &retry_history_count, NULL) != 0) result = 1;
 	if(drain_preview_events(preview_queue, &output_sequence) != 0) result = 1;
 	if(drain_resource_events_until_idle(resource_queue, &session,
 			&output_sequence, preview_queue, &preview_generation,

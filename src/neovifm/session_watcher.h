@@ -23,6 +23,7 @@ void nv_session_watcher_poll(nv_session_watcher_t *watcher,
 		unsigned int *changed_panes, unsigned int *failed_panes);
 void nv_session_watcher_disable(nv_session_watcher_t *watcher,
 		nv_session_pane_t pane);
+void nv_session_watcher_reset(nv_session_watcher_t *watcher);
 
 #endif /* VIFM__NEOVIFM__SESSION_WATCHER_H__ */
 
