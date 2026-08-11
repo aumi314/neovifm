@@ -32,6 +32,7 @@ struct fswatch_t
 	HANDLE directory;
 	HANDLE event;
 	OVERLAPPED overlapped;
+	BY_HANDLE_FILE_INFORMATION identity;
 	unsigned char buffer[64U*1024U];
 	int pending;
 	wchar_t *wpath;
@@ -39,6 +40,7 @@ struct fswatch_t
 
 static wchar_t * wide_path(const char path[]);
 static int start_watch(fswatch_t *watcher);
+static int path_replaced(const fswatch_t *watcher, int *replaced);
 
 static wchar_t *
 wide_path(const char path[])
@@ -118,6 +120,13 @@ fswatch_create(const char path[])
 		free(w);
 		return NULL;
 	}
+	if(!GetFileInformationByHandle(w->directory, &w->identity))
+	{
+		CloseHandle(w->directory);
+		free(w->wpath);
+		free(w);
+		return NULL;
+	}
 	w->event = CreateEventW(NULL, TRUE, FALSE, NULL);
 	if(w->event == NULL)
 	{
@@ -162,6 +171,9 @@ fswatch_free(fswatch_t *w)
 FSWatchState
 fswatch_poll(fswatch_t *w)
 {
+	int replaced = 0;
+	if(path_replaced(w, &replaced) != 0) return FSWS_ERRORED;
+	if(replaced) return FSWS_REPLACED;
 	const DWORD wait = WaitForSingleObject(w->event, 0U);
 	if(wait == WAIT_TIMEOUT) return FSWS_UNCHANGED;
 	if(wait != WAIT_OBJECT_0) return FSWS_ERRORED;
@@ -175,6 +187,25 @@ fswatch_poll(fswatch_t *w)
 	w->pending = 0;
 	if(start_watch(w) != 0) return FSWS_ERRORED;
 	return FSWS_UPDATED;
+}
+
+static int
+path_replaced(const fswatch_t *watcher, int *replaced)
+{
+	const HANDLE current = CreateFileW(watcher->wpath, 0U,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+			OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS |
+			FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if(current == INVALID_HANDLE_VALUE) return 1;
+	BY_HANDLE_FILE_INFORMATION identity = {};
+	const int failed = !GetFileInformationByHandle(current, &identity);
+	CloseHandle(current);
+	if(failed) return 1;
+	*replaced = identity.dwVolumeSerialNumber !=
+			watcher->identity.dwVolumeSerialNumber ||
+		identity.nFileIndexHigh != watcher->identity.nFileIndexHigh ||
+		identity.nFileIndexLow != watcher->identity.nFileIndexLow;
+	return 0;
 }
 
 static int
