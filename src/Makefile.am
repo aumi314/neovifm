@@ -75,6 +75,7 @@ neovifm_core_session_SOURCES = \
 	neovifm/pane_snapshot.c neovifm/pane_snapshot.h \
 	neovifm/workspace_session.c neovifm/workspace_session.h \
 	neovifm/session_platform.c neovifm/session_platform.h \
+	neovifm/session_watcher.c neovifm/session_watcher.h \
 	neovifm/undo_bridge.c neovifm/undo_bridge.h \
 	neovifm/undo_compat.c \
 	neovifm/action_task.c neovifm/action_task.h \
@@ -84,7 +85,10 @@ neovifm_core_session_SOURCES = \
 	undo.c undo.h \
 	compat/neovifm_fs.c compat/neovifm_fs.h \
 	compat/reallocarray.c compat/reallocarray.h \
+	utils/filemon.c utils/filemon.h \
+	utils/fswatch_nix.c utils/fswatch.h \
 	utils/parson.c utils/parson.h \
+	utils/trie.c utils/trie.h \
 	utils/utf8proc.c utils/utf8proc.h utils/utf8proc_data.inc
 
 dist_bin_SCRIPTS = vifm-pause vifm-screen-split vifm-convert-dircolors
