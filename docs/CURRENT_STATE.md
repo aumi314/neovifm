@@ -6,7 +6,7 @@
 
 NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
-它已经越过只读 Hybrid M0：C core session 使用 protocol v3 发布双 pane、tab、排序、搜索、预览、任务和资源事件，OpenTUI 客户端负责交互与渲染。它仍不是可安装产品，没有 release、安装包或稳定兼容承诺。
+它已经越过只读 Hybrid M0：C core session 使用 protocol v3 发布双 pane、tab、排序、搜索、预览、任务和资源事件，OpenTUI 客户端负责交互与渲染。四个平台已有可解压运行的 CI 预览包；它仍没有正式 release、安装器、自动更新或稳定兼容承诺。
 
 经典 `vifm` 继续作为兼容入口和行为基准。当前阶段不进行品牌机械重命名，也不移除经典视图。
 
@@ -73,6 +73,20 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 - 有界 Vifm `filetype`/`filextype`/`fileviewer` association 解析和结构化 open 结果。
 - task center、action/resource task 事件、取消和历史展示。
 - 正常退出时保存并恢复 workspace session；POSIX/macOS 和 Windows 均有自动化证据。
+- 从 CI artifact 解压原生预览包直接启动，不要求目标机器安装 Bun 或保留源码目录。
+
+## 便携预览包
+
+| 包 | runner | 运行边界 |
+|---|---|---|
+| Windows x64 | `windows-2022` | Windows 10+；未签名 |
+| Linux x64 | `ubuntu-22.04` | glibc；非 developer `-O2` core |
+| macOS arm64 | `macos-14` | macOS 14+ Apple Silicon；未签名、未 notarize |
+| macOS x64 | `macos-15-intel` | Intel x64；未签名、未 notarize |
+
+TUI 由 Bun 1.3.10 编译成单文件 `neovifm[.exe]`，OpenTUI native runtime 一并嵌入。它按 `NEOVIFM_CORE_SESSION`、兼容变量 `NEOVIFM_CORE_PROBE`、standalone sibling、源码默认值的顺序查找 `neovifm-core-session[.exe]`。运行期 `.env` 和 `bunfig.toml` 自动加载在 standalone build 中关闭。
+
+每个包附带 `BUILD-INFO.json`、`SHA256SUMS`、许可证、npm notices 和对应 source tarball；Windows 还包含内部 opener，并递归审计非系统 PE imports。`Preview / gate` 会在带空格和中文的目录重新解压，从包外 cwd 验证 help/version/check、缺失 core 的明确失败和恢复；Unix 额外经真实 PTY 等待界面并发送 F10 退出。
 
 ## 尚未完成
 
@@ -80,7 +94,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 - 文件操作与 Vifm `ops`/`background`/`undo` 的最终收口。
 - ZIP/SSH 跨平台真实挂载 E2E。
 - Kitty/Sixel 等原生图形协议、音频封面和完整媒体体验。
-- 安装器、发布包、稳定配置迁移和公开 release。
+- 安装器、签名、公开 release、自动更新和稳定配置迁移。
 - 插件 SDK 和 agent session。
 
 ## 验证入口
@@ -134,6 +148,8 @@ bun test ./integration/cross-platform-watcher.test.ts
 ```
 
 三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。C2 实现 run `31515109163` 三平台与 gate 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`，覆盖中文、extended-length path、外部目录变化、预览更新和导航后重新绑定。
+
+C3 的远端 run 和 artifact 证据记录在 `.planning/neovifm-alpha0-portable-preview/`；`CI / gate` 与四包 `Preview / gate` 都通过后才算便携基线成立。
 
 ## 文档优先级
 
