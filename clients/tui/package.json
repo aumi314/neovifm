@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:preview": "bun run scripts/build-preview.ts",
     "dev": "bun run src/index.tsx",
     "test": "bun test ./test/",
     "test:coverage": "bun test ./test/ --coverage --coverage-reporter=text",
