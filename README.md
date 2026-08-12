@@ -6,7 +6,7 @@ NeoVifm 是一款正在建设中的终端文件工作台，以 Vifm 的 Vim 语�
 
 ## 当前状态
 
-NeoVifm 的主线入口是 OpenTUI，当前阶段是 **Workbench Alpha 0 (unreleased)**，尚未发布可安装版本。这里的 Hybrid 是“Vifm C core 负责文件系统、操作和兼容语义，OpenTUI 负责渲染与交互”的架构边界，不再是只读 M0 的阶段名称；经典 `vifm` 继续作为兼容入口。
+NeoVifm 的主线入口是 OpenTUI，当前阶段是 **Workbench Alpha 0 (unreleased)**。四个平台已有 CI 生成的便携预览包，但没有正式 release、安装器或稳定兼容承诺。这里的 Hybrid 是“Vifm C core 负责文件系统、操作和兼容语义，OpenTUI 负责渲染与交互”的架构边界，不再是只读 M0 的阶段名称；经典 `vifm` 继续作为兼容入口。
 
 - 当前代码基线：Vifm 0.15 开发版。
 - 经典二进制、配置目录和 Lua API 仍使用 `vifm`，用于保持兼容。
@@ -15,7 +15,21 @@ NeoVifm 的主线入口是 OpenTUI，当前阶段是 **Workbench Alpha 0 (unrele
 - 当前仍未完成：完整 Vifm filetype/fileviewer/running 语义、真实 ZIP/SSH 挂载 E2E、图形图片/PDF/视频/音频渲染和完整低色彩/终端尺寸验收。
 - `file-actions-v1` 当前在 macOS、Linux 和 Windows 10+ 提供；三平台 session 都会自动刷新活动 tab 的目录和当前预览，不需要手动按 `Ctrl-L`。macOS 使用 kqueue，Linux 复用 Vifm 的 filesystem watcher，Windows 使用 Unicode directory handle。Windows 文件操作使用 Win32 handle identity、no-overwrite/no-follow、同卷 move 和 Recycle Bin delete；默认文件关联通过内部 `neovifm-win-open.exe` 和 Unicode `ShellExecuteExW` 打开。
 - 经典 Vifm 默认行为不被替换；OpenTUI 缺少 capability 时必须降级为可读的文本或结构化错误。
-- 当前平台和能力事实见 [CURRENT_STATE](docs/CURRENT_STATE.md)，混合架构见 [ADR 0001](docs/adr/0001-hybrid-core-opentui.md)，Windows 安全操作与 opener 见 [ADR 0002](docs/adr/0002-windows-safe-file-actions.md) 和 [ADR 0003](docs/adr/0003-windows-native-opener.md)，协议见 [NeoVifm Core Protocol](protocol/README.md)。
+- 当前平台和能力事实见 [CURRENT_STATE](docs/CURRENT_STATE.md)，混合架构见 [ADR 0001](docs/adr/0001-hybrid-core-opentui.md)，Windows 安全操作与 opener 见 [ADR 0002](docs/adr/0002-windows-safe-file-actions.md) 和 [ADR 0003](docs/adr/0003-windows-native-opener.md)，便携预览边界见 [ADR 0004](docs/adr/0004-portable-preview-bundles.md)，协议见 [NeoVifm Core Protocol](protocol/README.md)。
+
+## 便携预览包
+
+`Preview` workflow 原生生成 Windows 10+ x64、Linux x64/glibc、macOS 14+ Apple Silicon 和 macOS Intel x64 四种包。解压后直接运行，不需要安装 Bun，也不需要源码目录：
+
+```text
+neovifm [LEFT [RIGHT]]
+neovifm --check
+neovifm --version
+```
+
+Windows 对应命令是 `neovifm.exe`。`--check` 不进入全屏界面，也不写 session；它会从可执行文件同目录启动 core 并验证 protocol v3 初始 workspace。包里的 `neovifm-win-open.exe` 是 Windows 内部依赖，不是公开命令。
+
+这些包来自 PR 或手动 workflow artifact，保留 14 天，不是 GitHub Release。Windows 和 macOS 包未签名，系统可能显示 SmartScreen 或 Gatekeeper 警告；项目不会附带绕过系统安全检查的脚本。图片、PDF、媒体预览和 SSH/archive mount 仍可能需要下文列出的外部 helper。
 
 ## 产品方向
 
@@ -150,7 +164,7 @@ bun install --frozen-lockfile
 bun run dev ../.. /tmp
 ```
 
-前两个路径参数分别是左、右 pane；省略右路径时会复制左路径。`q` 或 `Ctrl-C` 退出，`Tab` 切换当前 pane。也可通过 `NEOVIFM_CORE_PROBE=/path/to/probe` 指定 core probe。
+前两个路径参数分别是左、右 pane；省略右路径时会复制左路径。`q` 或 `Ctrl-C` 退出，`Tab` 切换当前 pane。源码开发和便携包都优先读取 `NEOVIFM_CORE_SESSION`，并兼容旧的 `NEOVIFM_CORE_PROBE`；正常使用便携包不需要设置它们。
 
 不传路径启动时，OpenTUI 会在正常退出后恢复上次现场：包括左右 pane 路径、每个 pane 的 tab 顺序与活动 tab、活动 pane 和各目录中的光标目标。在 POSIX 环境，状态默认保存到 `$XDG_STATE_HOME/neovifm/session.json`，未设置时使用 `~/.local/state/neovifm/session.json`。Windows 默认使用 `%LOCALAPPDATA%\neovifm\session.json`，缺失时回退到 `%USERPROFILE%\AppData\Local\neovifm\session.json`。所有平台都可用 `NEOVIFM_SESSION_STATE` 覆盖；Windows 中文用户名和目录、已有状态替换及跨进程恢复已经过真实 core/TUI integration 验证。已挂载的 ZIP/SSH 资源不会被伪造为普通本地目录恢复。
 
@@ -175,7 +189,7 @@ env -u VIFM -u MYVIFMRC make check
 
 Windows 的 MSYS2/MINGW64 构建、focused C 和真实 core integration 命令见 [CURRENT_STATE](docs/CURRENT_STATE.md)。
 
-Windows 构建会同时生成内部 `neovifm-win-open.exe`。它必须与 `neovifm-core-session.exe` 位于同一目录，不是面向用户的稳定命令，也不能单独代替未来安装包。
+Windows 构建会同时生成内部 `neovifm-win-open.exe`。它必须与 `neovifm-core-session.exe` 位于同一目录，不是面向用户的稳定命令，也不能单独代替未来安装包。便携包的构建与解压验证见 `.github/workflows/preview.yml` 的 `Preview / gate`。
 
 ## 上游同步
 

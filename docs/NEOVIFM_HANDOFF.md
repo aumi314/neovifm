@@ -33,6 +33,8 @@ Linux 使用同一流程，但 configure 不需要 Apple Clang flag。完整验�
 
 Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core integration 命令见 `docs/CURRENT_STATE.md`。Windows 10+ 已能运行 Alpha 0 会话、安全文件操作、系统默认 opener 和活动 tab watcher，但仍没有安装器。
 
+四平台便携预览由 `.github/workflows/preview.yml` 在原生 runner 构建。下载 workflow artifact 后解压，先运行 `neovifm[.exe] --check`，再用 `neovifm[.exe] [LEFT [RIGHT]]` 启动。目标机器不需要 Bun；媒体预览和资源挂载 helper 仍是外部依赖。
+
 ## 当前功能
 
 - 双 pane、pane tabs、排序、选择和当前目录文件名搜索。
@@ -51,6 +53,7 @@ Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core int
 - `neovifm-win-open.exe` 必须与 core 位于同一目录，且不是稳定用户 CLI。
 - ZIP/SSH 真实挂载依赖 helper，跨平台 E2E 未完成。
 - Vifm marks、registers、完整 visual/history、批量重命名、compare/sync 和完整 background facade 未完成。
-- 安装、发布、插件 SDK、agent session 和全仓品牌重命名不属于 Alpha 0 基线。
+- 当前 archive 未签名，不是 release；安装器、自动更新、插件 SDK、agent session 和全仓品牌重命名不属于 Alpha 0 基线。
+- 便携 TUI 必须与 `neovifm-core-session[.exe]` 同目录。Windows 还必须保留 sibling `neovifm-win-open.exe` 和构建审计列出的 `runtime/*.dll`。
 
 接手顺序：`AGENTS.md` → `docs/CURRENT_STATE.md` → `docs/NEOVIFM_ARCHITECTURE.md` → `protocol/README.md` → 当前 `.planning/` 计划。
