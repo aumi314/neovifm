@@ -1,0 +1,320 @@
+name: Preview
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/preview.yml
+      - clients/tui/**
+      - licenses/preview/**
+      - scripts/preview/**
+      - src/**
+      - .planning/neovifm-alpha0-portable-preview/**
+      - README.md
+      - docs/**
+      - configure
+      - configure.ac
+      - COPYING
+      - COPYING.3party
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unix:
+    name: Preview ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: macos-14
+            platform: macos
+            arch: arm64
+          - os: macos-15-intel
+            platform: macos
+            arch: x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends autoconf automake libncursesw5-dev tmux
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install autoconf automake tmux
+
+      - name: Install TUI dependencies
+        working-directory: clients/tui
+        run: bun install --frozen-lockfile
+
+      - name: Build release core and standalone TUI
+        run: |
+          scripts/fix-timestamps
+          CFLAGS='-O2' ./configure --without-glib --disable-build-timestamp
+          make -C src neovifm-core-session
+          mkdir -p "$RUNNER_TEMP/preview-build"
+          NEOVIFM_BUILD_COMMIT="$(git rev-parse HEAD)" \
+            NEOVIFM_PREVIEW_OUTFILE="$RUNNER_TEMP/preview-build/neovifm" \
+            bun run clients/tui/scripts/build-preview.ts
+
+      - name: Audit dynamic dependencies
+        run: |
+          report="$RUNNER_TEMP/preview-dependencies.txt"
+          if [ "$RUNNER_OS" = Linux ]; then
+            {
+              echo 'neovifm:'
+              ldd "$RUNNER_TEMP/preview-build/neovifm"
+              echo 'neovifm-core-session:'
+              ldd src/neovifm-core-session
+            } > "$report"
+          else
+            {
+              echo 'neovifm:'
+              otool -L "$RUNNER_TEMP/preview-build/neovifm"
+              echo 'neovifm-core-session:'
+              otool -L src/neovifm-core-session
+            } > "$report"
+          fi
+          if grep -F "$GITHUB_WORKSPACE" "$report"; then
+            echo 'Dynamic dependency audit contains a workspace path' >&2
+            exit 1
+          fi
+          cat "$report"
+
+      - name: Stage, archive, and extract preview
+        id: package
+        run: |
+          stage="$RUNNER_TEMP/preview-stage"
+          package_root="$(bun run scripts/preview/stage.ts \
+            --output "$stage" \
+            --platform '${{ matrix.platform }}' \
+            --arch '${{ matrix.arch }}' \
+            --tui "$RUNNER_TEMP/preview-build/neovifm" \
+            --core src/neovifm-core-session \
+            --dependencies "$RUNNER_TEMP/preview-dependencies.txt")"
+          package_name="$(basename "$package_root")"
+          archive="$RUNNER_TEMP/$package_name.tar.gz"
+          tar -czf "$archive" -C "$stage" "$package_name"
+          extracted="$RUNNER_TEMP/NeoVifm 预览/extracted"
+          mkdir -p "$extracted"
+          tar -xzf "$archive" -C "$extracted"
+          {
+            echo "package_root=$extracted/$package_name"
+            echo "package_name=$package_name"
+            echo "archive=$archive"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify extracted preview
+        run: |
+          outside="$RUNNER_TEMP/NeoVifm 预览/working directory"
+          mkdir -p "$outside"
+          bun run scripts/preview/verify.ts \
+            --package '${{ steps.package.outputs.package_root }}' \
+            --cwd "$outside" \
+            --forbidden-path "$GITHUB_WORKSPACE"
+
+      - name: Run real PTY smoke test
+        run: |
+          outside="$RUNNER_TEMP/NeoVifm 预览/working directory"
+          python3 scripts/preview/pty-smoke.py \
+            '${{ steps.package.outputs.package_root }}/neovifm' \
+            "$outside"
+
+      - name: Upload portable preview
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.package.outputs.package_name }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Unix preview diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-${{ matrix.platform }}-${{ matrix.arch }}-diagnostics
+          path: ${{ runner.temp }}/preview-dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  windows:
+    name: Preview windows x64
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            binutils
+            git
+            wget
+            dos2unix
+            mingw-w64-x86_64-gcc
+
+      - name: Restore Windows build dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            src/PDCurses-3.8
+            src/mingw-libgnurx-2.5.1
+          key: windows-mingw64-deps-${{ hashFiles('patches/pdcurses38/**', 'scripts/appveyor/win/build-deps') }}
+
+      - name: Build Windows dependencies and release binaries
+        shell: msys2 {0}
+        run: |
+          bash scripts/appveyor/win/build-deps
+          export RELEASE=1
+          export LDFLAGS=-static
+          bash scripts/appveyor/win/build
+          test -f src/neovifm-core-session.exe
+          test -f src/neovifm-win-open.exe
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install TUI dependencies
+        working-directory: clients/tui
+        run: bun install --frozen-lockfile
+
+      - name: Build standalone TUI
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "preview-build\neovifm.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $output) | Out-Null
+          $env:NEOVIFM_BUILD_COMMIT = git rev-parse HEAD
+          $env:NEOVIFM_PREVIEW_OUTFILE = $output
+          bun run clients/tui/scripts/build-preview.ts
+          & $output --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Resolve MSYS2 tools
+        id: msys2-tools
+        shell: msys2 {0}
+        run: |
+          objdump="$(command -v objdump)"
+          test -x "$objdump"
+          {
+            echo "objdump=$(cygpath -w "$objdump")"
+            echo "mingw_bin=$(cygpath -w /mingw64/bin)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Audit PE dependencies
+        shell: pwsh
+        run: |
+          & ./scripts/preview/windows-dependencies.ps1 `
+            -Report "$env:RUNNER_TEMP\preview-dependencies.txt" `
+            -RuntimeList "$env:RUNNER_TEMP\preview-runtime-dlls.txt" `
+            -Objdump '${{ steps.msys2-tools.outputs.objdump }}' `
+            -Binary @(
+              "$env:RUNNER_TEMP\preview-build\neovifm.exe",
+              "$env:GITHUB_WORKSPACE\src\neovifm-core-session.exe",
+              "$env:GITHUB_WORKSPACE\src\neovifm-win-open.exe"
+            ) `
+            -SearchDirectory @(
+              "$env:GITHUB_WORKSPACE\src",
+              '${{ steps.msys2-tools.outputs.mingw_bin }}'
+            )
+          Get-Content "$env:RUNNER_TEMP\preview-dependencies.txt"
+
+      - name: Stage, archive, and extract preview
+        id: package
+        shell: pwsh
+        run: |
+          $arguments = @(
+            "run", "scripts/preview/stage.ts",
+            "--output", "$env:RUNNER_TEMP\preview-stage",
+            "--platform", "windows",
+            "--arch", "x64",
+            "--tui", "$env:RUNNER_TEMP\preview-build\neovifm.exe",
+            "--core", "$env:GITHUB_WORKSPACE\src\neovifm-core-session.exe",
+            "--helper", "$env:GITHUB_WORKSPACE\src\neovifm-win-open.exe",
+            "--dependencies", "$env:RUNNER_TEMP\preview-dependencies.txt"
+          )
+          foreach ($dll in Get-Content "$env:RUNNER_TEMP\preview-runtime-dlls.txt") {
+            if ($dll) { $arguments += @("--runtime-dll", $dll) }
+          }
+          $packageRoot = (& bun @arguments | Select-Object -Last 1).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packageName = Split-Path $packageRoot -Leaf
+          $archive = Join-Path $env:RUNNER_TEMP "$packageName.zip"
+          Compress-Archive -LiteralPath $packageRoot -DestinationPath $archive
+          $extracted = Join-Path $env:RUNNER_TEMP "NeoVifm 预览\extracted"
+          New-Item -ItemType Directory -Force -Path $extracted | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+          "package_root=$extracted\$packageName" >> $env:GITHUB_OUTPUT
+          "package_name=$packageName" >> $env:GITHUB_OUTPUT
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Verify extracted preview
+        shell: pwsh
+        run: |
+          $outside = Join-Path $env:RUNNER_TEMP "NeoVifm 预览\working directory"
+          New-Item -ItemType Directory -Force -Path $outside | Out-Null
+          bun run scripts/preview/verify.ts `
+            --package '${{ steps.package.outputs.package_root }}' `
+            --cwd $outside `
+            --forbidden-path $env:GITHUB_WORKSPACE
+
+      - name: Upload portable preview
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.package.outputs.package_name }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows preview diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-windows-x64-diagnostics
+          path: |
+            ${{ runner.temp }}/preview-dependencies.txt
+            ${{ runner.temp }}/preview-runtime-dlls.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  gate:
+    name: Preview / gate
+    if: always()
+    needs:
+      - unix
+      - windows
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require all portable previews
+        env:
+          UNIX_RESULT: ${{ needs.unix.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          test "$UNIX_RESULT" = success
+          test "$WINDOWS_RESULT" = success
