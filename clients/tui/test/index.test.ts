@@ -12,6 +12,7 @@ import {
   copyText,
   editorCommand,
   exitCodeFor,
+  isCliEntrypoint,
   isStandaloneRuntime,
   main,
   openEditor,
@@ -176,6 +177,12 @@ test("detects Bun 1.3 standalone executables by their runtime filename", () => {
   expect(isStandaloneRuntime("C:\\tools\\bun.exe", "win32")).toBe(false)
   expect(isStandaloneRuntime("/opt/neovifm/neovifm", "linux")).toBe(true)
   expect(isStandaloneRuntime("C:\\NeoVifm\\neovifm.exe", "win32")).toBe(true)
+})
+
+test("starts the CLI for source entrypoints and compiled standalone executables", () => {
+  expect(isCliEntrypoint(true, undefined)).toBe(true)
+  expect(isCliEntrypoint(false, true)).toBe(true)
+  expect(isCliEntrypoint(false, undefined)).toBe(false)
 })
 
 test("publishes deterministic help and build metadata", () => {
