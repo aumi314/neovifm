@@ -150,7 +150,7 @@ async function main(): Promise<void> {
   }
 
   const sourceArchive = join(options.packageRoot, "source", `neovifm-${buildInfo.source_commit}.tar.gz`)
-  const archive = await run(["tar", "-tzf", sourceArchive], options.outsideCwd)
+  const archive = await run(["tar", "-tzf", basename(sourceArchive)], dirname(sourceArchive))
   assert(archive.code === 0, `Source archive is invalid: ${archive.stderr.trim()}`)
   const sourcePrefix = `neovifm-${buildInfo.source_commit}/`
   assert(archive.stdout.split(/\r?\n/u).filter(Boolean).every((path) => path.startsWith(sourcePrefix)), "Source archive contains an unexpected root")
