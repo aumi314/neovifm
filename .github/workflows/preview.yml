@@ -172,6 +172,7 @@ jobs:
           update: true
           install: >-
             base-devel
+            binutils
             git
             wget
             dos2unix
@@ -213,13 +214,24 @@ jobs:
           $env:NEOVIFM_PREVIEW_OUTFILE = $output
           bun run clients/tui/scripts/build-preview.ts
 
+      - name: Resolve MSYS2 tools
+        id: msys2-tools
+        shell: msys2 {0}
+        run: |
+          objdump="$(command -v objdump)"
+          test -x "$objdump"
+          {
+            echo "objdump=$(cygpath -w "$objdump")"
+            echo "mingw_bin=$(cygpath -w /mingw64/bin)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Audit PE dependencies
         shell: pwsh
         run: |
           & ./scripts/preview/windows-dependencies.ps1 `
             -Report "$env:RUNNER_TEMP\preview-dependencies.txt" `
             -RuntimeList "$env:RUNNER_TEMP\preview-runtime-dlls.txt" `
-            -Objdump "C:\msys64\usr\bin\objdump.exe" `
+            -Objdump '${{ steps.msys2-tools.outputs.objdump }}' `
             -Binary @(
               "$env:RUNNER_TEMP\preview-build\neovifm.exe",
               "$env:GITHUB_WORKSPACE\src\neovifm-core-session.exe",
@@ -227,7 +239,7 @@ jobs:
             ) `
             -SearchDirectory @(
               "$env:GITHUB_WORKSPACE\src",
-              "C:\msys64\mingw64\bin"
+              '${{ steps.msys2-tools.outputs.mingw_bin }}'
             )
           Get-Content "$env:RUNNER_TEMP\preview-dependencies.txt"
 
