@@ -158,7 +158,8 @@ async function main(): Promise<void> {
   const executable = join(options.packageRoot, `neovifm${suffix}`)
   const core = join(options.packageRoot, `neovifm-core-session${suffix}`)
   const version = await run([executable, "--version"], options.outsideCwd)
-  assert(version.code === 0 && version.stdout.includes(buildInfo.source_commit.slice(0, 12)), `--version failed: ${version.stderr.trim()}`)
+  assert(version.code === 0 && version.stdout.includes(buildInfo.source_commit.slice(0, 12)),
+    `--version failed (exit ${version.code}): stdout=${JSON.stringify(version.stdout.trim())} stderr=${JSON.stringify(version.stderr.trim())}`)
   const help = await run([executable, "--help"], options.outsideCwd)
   assert(help.code === 0 && help.stdout.includes("neovifm [LEFT [RIGHT]]"), `--help failed: ${help.stderr.trim()}`)
   const initialCheck = await run([executable, "--check"], options.outsideCwd)

@@ -213,6 +213,8 @@ jobs:
           $env:NEOVIFM_BUILD_COMMIT = git rev-parse HEAD
           $env:NEOVIFM_PREVIEW_OUTFILE = $output
           bun run clients/tui/scripts/build-preview.ts
+          & $output --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Resolve MSYS2 tools
         id: msys2-tools
