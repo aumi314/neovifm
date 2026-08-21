@@ -21,11 +21,10 @@ if len(sys.argv) != 3:
 executable = os.path.abspath(sys.argv[1])
 directory = os.path.abspath(sys.argv[2])
 socket_name = f"neovifm-preview-{os.getpid()}"
-marker = tempfile.NamedTemporaryFile(
-    dir=directory, prefix="neovifm-pty-ready-", suffix=".txt", delete=False
-)
-marker.close()
-marker_name = os.path.basename(marker.name)
+marker_path = os.path.join(directory, "c3")
+with open(marker_path, "x", encoding="utf-8"):
+    pass
+marker_name = os.path.basename(marker_path)
 state_directory = tempfile.TemporaryDirectory(prefix="neovifm-preview-state-")
 exit_status = os.path.join(state_directory.name, "exit-status")
 
@@ -42,8 +41,8 @@ def tmux(*args: str) -> subprocess.CompletedProcess[str]:
 
 def cleanup() -> None:
     tmux("kill-server")
-    if os.path.exists(marker.name):
-        os.unlink(marker.name)
+    if os.path.exists(marker_path):
+        os.unlink(marker_path)
     state_directory.cleanup()
 
 
