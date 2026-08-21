@@ -12,7 +12,7 @@
 - [x] Windows PE recursion audit，Unix ldd/otool audit。
 - [x] 中文/空格目录解压验证、core 缺失反向验证和 Unix PTY/F10 smoke。
 - [x] Windows x64、Linux x64、macOS arm64、macOS x64 原生 jobs 与 `Preview / gate`。
-- [ ] 个人 fork 远端 `CI / gate` 与 `Preview / gate` 最终证据。
+- [x] 个人 fork 远端 `CI / gate` 与 `Preview / gate` 最终证据。
 
 ## 不在范围
 
@@ -26,3 +26,10 @@
 - 从包外 cwd 运行 help/version/check，无源码树依赖。
 - 许可证、source archive、SHA256 和动态依赖审计通过。
 - 原有三平台 CI 不降级，工作树干净。
+
+## 远端证据
+
+- Ready PR：`aumi314/neovifm#4`，base `codex/neovifm-alpha0-cross-platform-watcher`；实现验证提交 `b035f42d2`。
+- CI run `32484040086`：Linux、macOS、Windows、`CI / gate` 全绿。
+- Preview run `32484040073`：Windows x64、Linux x64、macOS arm64、macOS x64、`Preview / gate` 全绿。
+- 四个 artifact 的验证 merge source 为 `f891c8dedde83d00215c29d47dcb59333bd3d54b`，保留 14 天。

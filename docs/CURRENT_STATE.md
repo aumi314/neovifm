@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-08-12
+最后核对：2026-08-21
 
 ## 阶段
 
@@ -149,7 +149,7 @@ bun test ./integration/cross-platform-watcher.test.ts
 
 三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。C2 实现 run `31515109163` 三平台与 gate 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`，覆盖中文、extended-length path、外部目录变化、预览更新和导航后重新绑定。
 
-C3 的远端 run 和 artifact 证据记录在 `.planning/neovifm-alpha0-portable-preview/`；`CI / gate` 与四包 `Preview / gate` 都通过后才算便携基线成立。
+C3 个人 fork Ready PR #4 的实现验证提交为 `b035f42d2`。run `32484040086` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；run `32484040073` 的 Windows x64、Linux x64、macOS arm64、macOS x64 与 `Preview / gate` 全绿。四个 artifact 对应验证 merge source `f891c8dedde8`，保留 14 天；详情记录在 `.planning/neovifm-alpha0-portable-preview/`。
 
 ## 文档优先级
 
