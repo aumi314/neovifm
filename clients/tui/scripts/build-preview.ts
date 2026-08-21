@@ -17,6 +17,7 @@ const result = await Bun.build({
   plugins: [solidPlugin],
   define: {
     __NEOVIFM_BUILD_COMMIT__: JSON.stringify(commit),
+    __NEOVIFM_STANDALONE__: "true",
   },
   compile: {
     outfile,
