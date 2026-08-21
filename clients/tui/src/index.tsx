@@ -12,6 +12,7 @@ import { openFile as launchOpenFile, openResolvedFile as launchResolvedOpenFile 
 import type { OpenFileDependencies } from "./open-file.js"
 
 declare const __NEOVIFM_BUILD_COMMIT__: string
+declare const __NEOVIFM_STANDALONE__: boolean
 
 const WORKBENCH_STAGE = "Workbench Alpha 0 (unreleased)"
 
@@ -27,6 +28,10 @@ export interface CorePathOptions {
   readonly execPath: string
   readonly sourceDirectory: string
   readonly platform: NodeJS.Platform
+}
+
+export function isCliEntrypoint(importMetaMain: boolean, standalone: boolean | undefined): boolean {
+  return importMetaMain || standalone === true
 }
 
 export function parseCliArgs(args: readonly string[]): CliArguments {
@@ -432,6 +437,7 @@ export async function runCli(
   return typeof exitCode === "number" ? exitCode : exitCode == null ? 0 : Number.parseInt(exitCode, 10)
 }
 
-if (import.meta.main) {
+const standaloneEntrypoint = typeof __NEOVIFM_STANDALONE__ === "undefined" ? undefined : __NEOVIFM_STANDALONE__
+if (isCliEntrypoint(import.meta.main, standaloneEntrypoint)) {
 	process.exitCode = await runCli()
 }
