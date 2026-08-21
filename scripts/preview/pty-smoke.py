@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import atexit
 import fcntl
 import os
 import pty
@@ -26,6 +27,12 @@ if len(sys.argv) != 3:
 
 executable = os.path.abspath(sys.argv[1])
 directory = os.path.abspath(sys.argv[2])
+marker = tempfile.NamedTemporaryFile(
+    dir=directory, prefix="neovifm-pty-ready-", suffix=".txt", delete=False
+)
+marker.close()
+atexit.register(lambda: os.path.exists(marker.name) and os.unlink(marker.name))
+marker_name = os.path.basename(marker.name).encode()
 state_directory = tempfile.TemporaryDirectory(prefix="neovifm-preview-state-")
 pid, fd = pty.fork()
 if pid == 0:
@@ -38,7 +45,9 @@ if pid == 0:
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 80, 160, 0, 0))
 output = bytearray()
 deadline = time.monotonic() + 25
-while time.monotonic() < deadline and not (b"F10" in output and b"Quit" in output):
+while time.monotonic() < deadline and not (
+    marker_name in output and b"F10" in output and b"Quit" in output
+):
     readable, _, _ = select.select([fd], [], [], 0.25)
     if readable:
         try:
@@ -50,10 +59,10 @@ while time.monotonic() < deadline and not (b"F10" in output and b"Quit" in outpu
 else:
     pass
 
-if b"F10" not in output or b"Quit" not in output:
+if marker_name not in output or b"F10" not in output or b"Quit" not in output:
     os.kill(pid, signal.SIGTERM)
     os.waitpid(pid, 0)
-    fail("Portable TUI did not render its initial footer", bytes(output))
+    fail("Portable TUI did not render its initial workspace and footer", bytes(output))
 
 time.sleep(1)
 exit_deadline = time.monotonic() + 15
