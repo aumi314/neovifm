@@ -219,7 +219,7 @@ jobs:
           & ./scripts/preview/windows-dependencies.ps1 `
             -Report "$env:RUNNER_TEMP\preview-dependencies.txt" `
             -RuntimeList "$env:RUNNER_TEMP\preview-runtime-dlls.txt" `
-            -Objdump "C:\msys64\mingw64\bin\objdump.exe" `
+            -Objdump "C:\msys64\usr\bin\objdump.exe" `
             -Binary @(
               "$env:RUNNER_TEMP\preview-build\neovifm.exe",
               "$env:GITHUB_WORKSPACE\src\neovifm-core-session.exe",

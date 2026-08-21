@@ -55,9 +55,14 @@ if b"F10" not in output or b"Quit" not in output:
     os.waitpid(pid, 0)
     fail("Portable TUI did not render its initial footer", bytes(output))
 
-os.write(fd, b"\x1b[21~")
+time.sleep(1)
 exit_deadline = time.monotonic() + 15
+next_f10 = 0.0
 while time.monotonic() < exit_deadline:
+    now = time.monotonic()
+    if now >= next_f10:
+        os.write(fd, b"\x1b[21~")
+        next_f10 = now + 1
     finished, status = os.waitpid(pid, os.WNOHANG)
     if finished == pid:
         if os.waitstatus_to_exitcode(status) != 0:
