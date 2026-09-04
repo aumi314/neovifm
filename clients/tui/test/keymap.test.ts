@@ -117,12 +117,41 @@ test("exposes every Total Commander function key through the shared action dispa
   expect(map.handle(key("f10"))).toEqual({ kind: "function", action: "quit" })
 })
 
-test("maps Vifm file action aliases onto the guarded function actions", () => {
+test("maps Vifm register verbs yy/Y and put p/P", () => {
   const map = new VifmKeymap()
-  expect(map.handle(key("p"))).toEqual({ kind: "function", action: "copy" })
-  expect(map.handle(key("p", { shift: true, sequence: "P" }))).toEqual({ kind: "function", action: "move" })
+  expect(map.handle(key("y"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("y"))).toEqual({ kind: "function", action: "yank" })
+  expect(map.handle(key("y", { shift: true, sequence: "Y" }))).toEqual({ kind: "function", action: "yank" })
+  expect(map.handle(key("p"))).toEqual({ kind: "function", action: "put-copy" })
+  expect(map.handle(key("p", { shift: true, sequence: "P" }))).toEqual({ kind: "function", action: "put-move" })
+})
+
+test("maps Vifm dd to delete and keeps d/D as prefixes", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("d"))).toEqual({ kind: "pending" })
   expect(map.handle(key("d"))).toEqual({ kind: "function", action: "delete" })
-  expect(map.handle(key("d", { shift: true, sequence: "D" }))).toEqual({ kind: "function", action: "delete" })
+
+  expect(map.handle(key("d", { shift: true, sequence: "D" }))).toEqual({ kind: "pending" })
+  expect(map.handle(key("d", { shift: true, sequence: "D" }))).toEqual({ kind: "unhandled" })
+
+  expect(map.handle(key("d"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("j"))).toEqual({ kind: "unhandled" })
+})
+
+test("rejects stray y prefix continuations without disturbing later keys", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("y"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("x"))).toEqual({ kind: "unhandled" })
+  expect(map.handle(key("j"))).toEqual({ kind: "command", command: { action: "move", delta: 1 } })
+})
+
+test("clears a pending count for register verbs just like other plain keys", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("2"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("p"))).toEqual({ kind: "function", action: "put-copy" })
+  expect(map.handle(key("3"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("y"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("y"))).toEqual({ kind: "function", action: "yank" })
 })
 
 test("routes Vifm u through the core-owned undo command", () => {
