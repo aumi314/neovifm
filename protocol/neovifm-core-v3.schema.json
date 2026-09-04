@@ -106,7 +106,7 @@
         "task_id": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 32 },
         "command_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "pane": { "enum": ["left", "right"] },
-        "action": { "enum": ["copy", "move", "mkdir", "delete"] },
+        "action": { "enum": ["copy", "move", "mkdir", "delete", "rename"] },
         "state": { "enum": ["queued", "running", "done", "failed", "cancelled"] },
         "completed_count": { "type": "integer", "minimum": 0, "maximum": 64 },
         "total_count": { "type": "integer", "minimum": 1, "maximum": 64 },
@@ -339,6 +339,20 @@
               "type": "object",
               "required": ["action", "pane", "cwd_bytes_hex", "snapshot_revision", "cwd_device", "cwd_inode", "cwd_ctime_unix_ns", "name"],
               "properties": { "action": { "const": "mkdir" }, "name": { "type": "string", "minLength": 1, "maxLength": 255 } }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/sourceIdentity" },
+            {
+              "type": "object",
+              "required": ["action", "pane", "cwd_bytes_hex", "snapshot_revision", "cwd_device", "cwd_inode", "cwd_ctime_unix_ns", "targets", "name"],
+              "properties": {
+                "action": { "const": "rename" },
+                "targets": { "$ref": "#/$defs/actionTargets", "minItems": 1, "maxItems": 1 },
+                "name": { "type": "string", "minLength": 1, "maxLength": 255 }
+              }
             }
           ]
         }

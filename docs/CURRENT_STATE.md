@@ -30,6 +30,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 | `open-v1` | 是 | 是 | 是 | 结构化 argv；Windows 通过内部 `neovifm-win-open.exe` 调用系统默认关联 |
 | `resource-tasks-v1` | 是 | 是 | 是 | 协议入口存在；真实 mount 仍依赖平台 helper |
 | `file-actions-v1` | 是 | 是 | 是（Windows 10+） | copy/move/mkdir/delete 与 copy/move/mkdir undo；Windows delete 依赖 Recycle Bin，不提供协议级 delete undo |
+| `file-rename-v1` | 是 | 是 | 是（Windows 10+） | 单目标 rename（cw/cW），随 `file-actions-v1` 一同发布；同目录 no-overwrite 改名，可 undo |
 
 不要把“capability 被发布”写成“所有 helper 和 E2E 都已经完成”。ZIP/SSH 的真实挂载、取消和恢复仍需要单独平台验收。
 

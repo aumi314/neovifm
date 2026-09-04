@@ -151,7 +151,7 @@ export interface PreviewPayload extends PreviewTaskPayload {
   readonly truncated: boolean
 }
 
-export type ActionTaskAction = "copy" | "move" | "mkdir" | "delete"
+export type ActionTaskAction = "copy" | "move" | "mkdir" | "delete" | "rename"
 
 export interface ActionTaskPayload {
   readonly task_id: string
@@ -753,7 +753,7 @@ function parsePreviewPayload(value: unknown): PreviewPayload {
 function parseActionTaskPayload(value: unknown): ActionTaskPayload {
   const payload = objectValue(value, "payload")
   const action = stringValue(payload.action, "payload.action")
-  if (action !== "copy" && action !== "move" && action !== "mkdir" && action !== "delete") {
+  if (action !== "copy" && action !== "move" && action !== "mkdir" && action !== "delete" && action !== "rename") {
     return invalid("payload.action", "is not a supported file action")
   }
   const state = parsePreviewTaskState(payload.state, "payload.state")
