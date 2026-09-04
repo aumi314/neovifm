@@ -1117,3 +1117,164 @@ test("delete confirmation describes the whole selection instead of only the curs
   await setup.renderOnce()
   expect(setup.captureCharFrame()).toContain("Delete 1 selected items?")
 })
+
+test("yanks the cursor entry with yy and puts a copy into the opposite pane with p", async () => {
+  const sent: unknown[] = []
+  const [props, setProps] = createSignal<AppProps>({ workspace, capabilities, onCommand: (command) => { sent.push(command) } })
+  setup = await testRender(() => <App {...props()} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("y")
+  setup.mockInput.pressKey("y")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("1 item(s) yanked")
+  expect(sent).toEqual([])
+
+  setProps({ workspace: { ...workspace, active_pane: "right" }, capabilities, onCommand: (command) => { sent.push(command) } })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("p")
+  await setup.renderOnce()
+  expect(sent.at(-1)).toEqual({
+    action: "copy",
+    pane: "left",
+    cwd_bytes_hex: snapshot.cwd_bytes_hex,
+    snapshot_revision: snapshot.snapshot_revision,
+    cwd_device: snapshot.cwd_device,
+    cwd_inode: snapshot.cwd_inode,
+    cwd_ctime_unix_ns: snapshot.cwd_ctime_unix_ns,
+    destination_cwd_bytes_hex: workspace.right.cwd_bytes_hex,
+    destination_snapshot_revision: workspace.right.snapshot_revision,
+    destination_cwd_device: workspace.right.cwd_device,
+    destination_cwd_inode: workspace.right.cwd_inode,
+    destination_cwd_ctime_unix_ns: workspace.right.cwd_ctime_unix_ns,
+    targets: [{
+      path_bytes_hex: snapshot.entries[0]!.path_bytes_hex,
+      device: snapshot.entries[0]!.device,
+      inode: snapshot.entries[0]!.inode,
+      ctime_unix_ns: snapshot.entries[0]!.ctime_unix_ns,
+      kind: snapshot.entries[0]!.kind,
+    }],
+  })
+})
+
+test("puts a yanked selection by moving it with P", async () => {
+  const sent: unknown[] = []
+  const selectedWorkspace: WorkspaceSnapshotPayload = {
+    ...workspace,
+    left: {
+      ...workspace.left,
+      selection_count: 2,
+      entries: [
+        { ...workspace.left.entries[0]!, selected: true },
+        { ...workspace.left.entries[0]!, name_display: "b.txt", path_bytes_hex: "beef", device: "12", inode: "22", ctime_unix_ns: "32", selected: true },
+        { ...workspace.left.entries[0]!, name_display: "c.txt", path_bytes_hex: "c0ffee" },
+      ],
+    },
+  }
+  setup = await testRender(() => <App workspace={selectedWorkspace} capabilities={capabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("Y")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("2 item(s) yanked")
+
+  setup.mockInput.pressKey("P")
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({
+    action: "move-files",
+    pane: "left",
+    targets: [
+      { path_bytes_hex: snapshot.entries[0]!.path_bytes_hex, inode: "21" },
+      { path_bytes_hex: "beef", inode: "22" },
+    ],
+  })
+})
+
+test("reuses the refreshed source identity when putting after a watcher update", async () => {
+  const sent: unknown[] = []
+  const [props, setProps] = createSignal<AppProps>({ workspace, capabilities, onCommand: (command) => { sent.push(command) } })
+  setup = await testRender(() => <App {...props()} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("y")
+  setup.mockInput.pressKey("y")
+  await setup.renderOnce()
+
+  const refreshed: WorkspaceSnapshotPayload = {
+    ...workspace,
+    active_pane: "right",
+    left: {
+      ...workspace.left,
+      snapshot_revision: "9",
+      entries: [{ ...workspace.left.entries[0]!, inode: "99", ctime_unix_ns: "88" }],
+    },
+  }
+  setProps({ workspace: refreshed, capabilities, onCommand: (command) => { sent.push(command) } })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("p")
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({
+    action: "copy",
+    pane: "left",
+    snapshot_revision: "9",
+    targets: [{ path_bytes_hex: snapshot.entries[0]!.path_bytes_hex, inode: "99", ctime_unix_ns: "88" }],
+  })
+})
+
+test("refuses to put an empty buffer or a source that left both panes", async () => {
+  const sent: unknown[] = []
+  const [props, setProps] = createSignal<AppProps>({ workspace, capabilities, onCommand: (command) => { sent.push(command) } })
+  setup = await testRender(() => <App {...props()} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("p")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Yank buffer is empty")
+  expect(sent).toEqual([])
+
+  setup.mockInput.pressKey("y")
+  setup.mockInput.pressKey("y")
+  await setup.renderOnce()
+  setProps({
+    workspace: { ...workspace, left: { ...workspace.left, cwd_bytes_hex: "aaaa", entries: [] } },
+    capabilities,
+    onCommand: (command) => { sent.push(command) },
+  })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("p")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Yank source directory is no longer visible")
+  expect(sent).toEqual([])
+})
+
+test("reports yanked entries that vanished after a refresh", async () => {
+  const sent: unknown[] = []
+  const [props, setProps] = createSignal<AppProps>({ workspace, capabilities, onCommand: (command) => { sent.push(command) } })
+  setup = await testRender(() => <App {...props()} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("y")
+  setup.mockInput.pressKey("y")
+  await setup.renderOnce()
+  setProps({
+    workspace: { ...workspace, left: { ...workspace.left, snapshot_revision: "10", entries: [] } },
+    capabilities,
+    onCommand: (command) => { sent.push(command) },
+  })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("p")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Yank source no longer exists: file.txt")
+  expect(sent).toEqual([])
+})
+
+test("routes dd through the same guarded delete confirmation as F8", async () => {
+  setup = await testRender(() => <App workspace={workspace} capabilities={capabilities} onCommand={() => true} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("d")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).not.toContain("Delete file.txt?")
+  setup.mockInput.pressKey("d")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Delete file.txt?")
+})
