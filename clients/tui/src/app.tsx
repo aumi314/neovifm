@@ -16,6 +16,7 @@ import type {
 } from "./protocol.js"
 import type { CoreActionTarget, CoreSessionCommand } from "./core-client.js"
 import { VifmKeymap, type FunctionAction } from "./keymap.js"
+import { resolvePutSource, yankFromSnapshot, type YankBuffer } from "./yank.js"
 import {
   extensionGroup,
   formatFileSize,
@@ -981,6 +982,7 @@ export function App(props: AppProps) {
   const [pathMode, setPathMode] = createSignal<StatusPathMode>("absolute")
   let quickPreviewIdentity = ""
   let handledOpenSequence = 0
+  let yankBuffer: YankBuffer | undefined
 
   const activeSnapshot = () => props.workspace?.active_pane === "right" ? props.workspace.right : props.workspace?.left
   const currentEntry = () => {
@@ -1201,6 +1203,17 @@ export function App(props: AppProps) {
       setDialog({ kind: "mount-ssh", pane: workspace.active_pane })
       return
     }
+    if (action === "yank") {
+      const snapshot = activeSnapshot()
+      const buffer = snapshot === undefined ? undefined : yankFromSnapshot(snapshot)
+      if (buffer === undefined) {
+        setNotice("Nothing to yank")
+        return
+      }
+      yankBuffer = buffer
+      setNotice(`${buffer.entries.length} item(s) yanked`)
+      return
+    }
     if (!canFileActions()) {
       setNotice("Core file actions are unavailable")
       return
@@ -1246,6 +1259,53 @@ export function App(props: AppProps) {
           },
         })
       }
+      return
+    }
+    if (action === "put-copy" || action === "put-move") {
+      const move = action === "put-move"
+      const label = move ? "Put (move)" : "Put"
+      if (yankBuffer === undefined) {
+        setNotice("Yank buffer is empty")
+        return
+      }
+      const workspace = props.workspace
+      if (workspace === undefined) {
+        setNotice(`${label} requires a workspace`)
+        return
+      }
+      const destination = activeSnapshot()!
+      const destinationContext = actionContext(destination)
+      if (destinationContext === undefined) {
+        setNotice(`${label} requires a stable core snapshot`)
+        return
+      }
+      const resolved = resolvePutSource(yankBuffer, workspace)
+      if (!resolved.ok) {
+        if (resolved.reason === "source-not-visible") {
+          setNotice("Yank source directory is no longer visible")
+        } else if (resolved.reason === "stale-targets") {
+          const extra = resolved.missing.length - 1
+          setNotice(`Yank source no longer exists: ${resolved.missing[0]}${extra > 0 ? ` (+${extra} more)` : ""}`)
+        } else {
+          setNotice(`${label} requires a stable core snapshot`)
+        }
+        return
+      }
+      sendCommand({
+        action: move ? "move-files" : "copy",
+        pane: resolved.source.pane,
+        cwd_bytes_hex: resolved.source.cwd_bytes_hex,
+        snapshot_revision: resolved.source.snapshot_revision,
+        cwd_device: resolved.source.cwd_device,
+        cwd_inode: resolved.source.cwd_inode,
+        cwd_ctime_unix_ns: resolved.source.cwd_ctime_unix_ns,
+        destination_cwd_bytes_hex: destination.cwd_bytes_hex,
+        destination_snapshot_revision: destinationContext.snapshot_revision,
+        destination_cwd_device: destinationContext.cwd_device,
+        destination_cwd_inode: destinationContext.cwd_inode,
+        destination_cwd_ctime_unix_ns: destinationContext.cwd_ctime_unix_ns,
+        targets: resolved.targets,
+      }, `${label} requested`)
       return
     }
     const workspace = props.workspace
