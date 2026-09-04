@@ -1516,7 +1516,8 @@ nv_workspace_session_prepare_action(const nv_workspace_session_t *session,
 	if(command->pane != NV_SESSION_LEFT && command->pane != NV_SESSION_RIGHT)
 		return set_error(error, "invalid-command", "invalid action pane");
 	if(command->kind != NV_SESSION_COPY && command->kind != NV_SESSION_MOVE_FILES &&
-			command->kind != NV_SESSION_MKDIR && command->kind != NV_SESSION_DELETE)
+			command->kind != NV_SESSION_MKDIR && command->kind != NV_SESSION_DELETE &&
+			command->kind != NV_SESSION_RENAME)
 		return set_error(error, "invalid-command", "command is not a file action");
 	const nv_pane_snapshot_t *const source = command->pane == NV_SESSION_LEFT ?
 		&session->left : &session->right;
@@ -1535,7 +1536,7 @@ nv_workspace_session_prepare_action(const nv_workspace_session_t *session,
 	};
 	if(next.source_directory == NULL)
 		goto invalid_path;
-	if(command->kind == NV_SESSION_MKDIR)
+	if(command->kind == NV_SESSION_MKDIR || command->kind == NV_SESSION_RENAME)
 	{
 		if(!valid_name(command->name))
 		{
@@ -1544,6 +1545,13 @@ nv_workspace_session_prepare_action(const nv_workspace_session_t *session,
 		}
 		next.name = strdup(command->name);
 		if(next.name == NULL) goto out_of_memory;
+	}
+	if(command->kind == NV_SESSION_RENAME &&
+			command->action_target_count != 1U)
+	{
+		nv_session_prepared_action_free(&next);
+		return set_error(error, "invalid-command",
+				"rename targets exactly one entry");
 	}
 	if(command->kind == NV_SESSION_COPY || command->kind == NV_SESSION_MOVE_FILES)
 	{
@@ -1564,6 +1572,14 @@ nv_workspace_session_prepare_action(const nv_workspace_session_t *session,
 			.ctime_unix_ns = destination->cwd_ctime_unix_ns,
 		};
 		if(next.destination_directory == NULL) goto invalid_path;
+	}
+	if(command->kind == NV_SESSION_RENAME)
+	{
+		/* A rename stays inside its own directory: the destination is the
+		 * source directory itself, only the basename changes. */
+		next.destination_directory = strdup(next.source_directory);
+		next.destination_directory_identity = next.source_directory_identity;
+		if(next.destination_directory == NULL) goto out_of_memory;
 	}
 	if(command->kind != NV_SESSION_MKDIR)
 	{
@@ -1602,6 +1618,20 @@ nv_workspace_session_prepare_action(const nv_workspace_session_t *session,
 			if(next.targets[i].path == NULL || next.targets[i].name == NULL)
 				goto invalid_path;
 		}
+	}
+	if(command->kind == NV_SESSION_RENAME)
+	{
+		if(strcmp(next.name, next.targets[0].name) == 0)
+		{
+			nv_session_prepared_action_free(&next);
+			return set_error(error, "invalid-name", "name is unchanged");
+		}
+		/* The worker builds the destination as directory + target name, so a
+		 * rename installs the new basename on the single prepared target. */
+		char *const renamed = strdup(next.name);
+		if(renamed == NULL) goto out_of_memory;
+		free(next.targets[0].name);
+		next.targets[0].name = renamed;
 	}
 	nv_session_prepared_action_free(action);
 	*action = next;
@@ -1845,6 +1875,7 @@ nv_workspace_session_apply(nv_workspace_session_t *session,
 		case NV_SESSION_MOVE_FILES:
 		case NV_SESSION_DELETE:
 		case NV_SESSION_MKDIR:
+		case NV_SESSION_RENAME:
 			return set_error(error, "async-action-required",
 					"file actions must run through the action queue");
 		case NV_SESSION_UNDO:
