@@ -8,7 +8,7 @@ export interface KeyLike {
   readonly meta: boolean
 }
 
-export type FunctionAction = "view" | "quick-view" | "edit" | "copy" | "move" | "mkdir" | "delete" | "mount-ssh" | "quit" | "yank" | "put-copy" | "put-move"
+export type FunctionAction = "view" | "quick-view" | "edit" | "copy" | "move" | "mkdir" | "delete" | "mount-ssh" | "quit" | "yank" | "put-copy" | "put-move" | "rename" | "rename-root"
 
 export type KeymapResult =
   | Readonly<{ kind: "command"; command: CoreSessionCommand }>
@@ -19,7 +19,7 @@ export type KeymapResult =
   | Readonly<{ kind: "pending" }>
   | Readonly<{ kind: "unhandled" }>
 
-type Prefix = "g" | "q" | "ctrl-w" | "shift-z" | "d" | "y"
+type Prefix = "g" | "q" | "ctrl-w" | "shift-z" | "d" | "y" | "c"
 
 const command = (value: CoreSessionCommand): KeymapResult => ({ kind: "command", command: value })
 
@@ -77,6 +77,12 @@ export class VifmKeymap {
     if (prefix === "y") {
       this.#count = undefined
       if (name === "y" && !key.shift) return { kind: "function", action: "yank" }
+      return { kind: "unhandled" }
+    }
+
+    if (prefix === "c") {
+      this.#count = undefined
+      if (name === "w") return { kind: "function", action: key.shift ? "rename-root" : "rename" }
       return { kind: "unhandled" }
     }
 
@@ -153,6 +159,10 @@ export class VifmKeymap {
     }
     if (name === "y") {
       this.#prefix = "y"
+      return { kind: "pending" }
+    }
+    if (name === "c") {
+      this.#prefix = "c"
       return { kind: "pending" }
     }
     if (name === "h" || name === "backspace") return command({ action: "parent" })

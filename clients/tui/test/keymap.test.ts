@@ -154,6 +154,19 @@ test("clears a pending count for register verbs just like other plain keys", () 
   expect(map.handle(key("y"))).toEqual({ kind: "function", action: "yank" })
 })
 
+test("maps Vifm cw/cW rename prefixes", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("c"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("w"))).toEqual({ kind: "function", action: "rename" })
+
+  expect(map.handle(key("c"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("w", { shift: true, sequence: "W" }))).toEqual({ kind: "function", action: "rename-root" })
+
+  expect(map.handle(key("c"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("j"))).toEqual({ kind: "unhandled" })
+  expect(map.handle(key("j"))).toEqual({ kind: "command", command: { action: "move", delta: 1 } })
+})
+
 test("routes Vifm u through the core-owned undo command", () => {
   const map = new VifmKeymap()
   expect(map.handle(key("u"))).toEqual({ kind: "command", command: { action: "undo" } })

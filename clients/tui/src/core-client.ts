@@ -118,6 +118,17 @@ export type CoreSessionCommand =
       targets: readonly CoreActionTarget[]
     }>
   | Readonly<{
+      action: "rename"
+      pane: "left" | "right"
+      cwd_bytes_hex: string
+      snapshot_revision: string
+      cwd_device: string
+      cwd_inode: string
+      cwd_ctime_unix_ns: string
+      targets: readonly CoreActionTarget[]
+      name: string
+    }>
+  | Readonly<{
       action: "mkdir"
       pane: "left" | "right"
       cwd_bytes_hex: string

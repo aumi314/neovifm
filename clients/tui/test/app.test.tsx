@@ -1278,3 +1278,110 @@ test("routes dd through the same guarded delete confirmation as F8", async () =>
   await setup.renderOnce()
   expect(setup.captureCharFrame()).toContain("Delete file.txt?")
 })
+
+const renameCapabilities = [...capabilities, "file-rename-v1"] as const
+
+test("cw renames the current file through a prefilled dialog", async () => {
+  const sent: unknown[] = []
+  setup = await testRender(() => <App workspace={workspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Rename file.txt")
+
+  // The dialog is prefilled with the current name; replace it.
+  for (let i = 0; i < "file.txt".length; i++) setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("renamed.md")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent.at(-1)).toEqual({
+    action: "rename",
+    pane: "left",
+    cwd_bytes_hex: snapshot.cwd_bytes_hex,
+    snapshot_revision: snapshot.snapshot_revision,
+    cwd_device: snapshot.cwd_device,
+    cwd_inode: snapshot.cwd_inode,
+    cwd_ctime_unix_ns: snapshot.cwd_ctime_unix_ns,
+    targets: [{
+      path_bytes_hex: snapshot.entries[0]!.path_bytes_hex,
+      device: snapshot.entries[0]!.device,
+      inode: snapshot.entries[0]!.inode,
+      ctime_unix_ns: snapshot.entries[0]!.ctime_unix_ns,
+      kind: "file",
+    }],
+    name: "renamed.md",
+  })
+})
+
+test("cW edits only the root and keeps the extension", async () => {
+  const sent: unknown[] = []
+  setup = await testRender(() => <App workspace={workspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("W")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("keeps .txt")
+
+  for (let i = 0; i < "file".length; i++) setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("renamed")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({ action: "rename", name: "renamed.txt" })
+})
+
+test("submitting an unchanged or invalid rename sends no command", async () => {
+  const sent: unknown[] = []
+  setup = await testRender(() => <App workspace={workspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  // Unchanged: the prefilled value goes straight back out, dialog just closes.
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent).toEqual([])
+  expect(setup.captureCharFrame()).not.toContain("Rename file.txt")
+
+  // Invalid: a path separator keeps the dialog open with a notice.
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  for (let i = 0; i < "file.txt".length; i++) setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("a/b")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent).toEqual([])
+  expect(setup.captureCharFrame()).toContain("Invalid name")
+})
+
+test("refuses rename without the capability or with an active selection", async () => {
+  const sent: unknown[] = []
+  setup = await testRender(() => <App workspace={workspace} capabilities={capabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Rename is unavailable")
+  expect(sent).toEqual([])
+  setup.renderer.destroy()
+
+  const selectedWorkspace: WorkspaceSnapshotPayload = {
+    ...workspace,
+    left: {
+      ...workspace.left,
+      selection_count: 1,
+      entries: [{ ...workspace.left.entries[0]!, selected: true }],
+    },
+  }
+  setup = await testRender(() => <App workspace={selectedWorkspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Batch rename is not supported yet")
+  expect(sent).toEqual([])
+})

@@ -94,6 +94,21 @@ type DialogState =
   | Readonly<{ kind: "mount-ssh"; pane: PaneId }>
   | Readonly<{ kind: "search"; direction: -1 | 1 }>
   | Readonly<{ kind: "delete"; target: string; command: CoreSessionCommand }>
+  | Readonly<{
+      kind: "rename"
+      rootOnly: boolean
+      pane: PaneId
+      original: string
+      path_bytes_hex: string
+    }>
+
+// Splits a basename for Vifm's cW: the extension is the last dot suffix, but a
+// leading dot alone (dotfiles) never starts an extension.
+function splitFileName(name: string): { root: string; extension: string } {
+  const dot = name.lastIndexOf(".")
+  if (dot <= 0) return { root: name, extension: "" }
+  return { root: name.slice(0, dot), extension: name.slice(dot) }
+}
 
 function entryColor(entry: SnapshotPayload["entries"][number]): string {
   if (entry.kind === "directory") return COLORS.blue
@@ -570,7 +585,7 @@ function ActionDialog(props: {
   readonly onCancel: () => void
 }) {
   return <box flexGrow={1} width="100%" flexDirection="column" justifyContent="center" alignItems="center" backgroundColor={COLORS.mantle}>
-    <box width="70%" flexDirection="column" border borderStyle="double" borderColor={props.state.kind === "delete" ? COLORS.red : COLORS.lavender} backgroundColor={COLORS.base} padding={1} title={props.state.kind === "mkdir" ? "F7 MKDIR" : props.state.kind === "mount-ssh" ? "F9 SSH" : props.state.kind === "search" ? (props.state.direction === 1 ? "/ SEARCH" : "? SEARCH") : "F8 DELETE"}>
+    <box width="70%" flexDirection="column" border borderStyle="double" borderColor={props.state.kind === "delete" ? COLORS.red : COLORS.lavender} backgroundColor={COLORS.base} padding={1} title={props.state.kind === "mkdir" ? "F7 MKDIR" : props.state.kind === "mount-ssh" ? "F9 SSH" : props.state.kind === "search" ? (props.state.direction === 1 ? "/ SEARCH" : "? SEARCH") : props.state.kind === "rename" ? "cw RENAME" : "F8 DELETE"}>
       {props.state.kind === "search" ? <>
         <text fg={COLORS.text}>Search name</text>
         <input id="search-input" focused placeholder="file name" maxLength={255} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
@@ -583,6 +598,10 @@ function ActionDialog(props: {
         <text fg={COLORS.text}>Remote</text>
         <input id="mount-ssh-input" focused placeholder="user@host:/path" maxLength={16384} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
         <text fg={COLORS.subtext0}>Enter mounts read-only · Esc cancels</text>
+      </> : props.state.kind === "rename" ? <>
+        <text fg={COLORS.text}>Rename {props.state.original}</text>
+        <input id="rename-input" focused value={props.state.rootOnly ? splitFileName(props.state.original).root : props.state.original} maxLength={255} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
+        <text fg={COLORS.subtext0}>{props.state.rootOnly ? `Enter renames root, keeps ${splitFileName(props.state.original).extension || "no extension"}` : "Enter renames"} · Esc cancels</text>
       </> : <>
         <text fg={COLORS.text}>Delete {props.state.target}?</text>
         <text fg={COLORS.subtext0}>Enter/Y confirms · Esc/N cancels</text>
@@ -969,6 +988,7 @@ export function App(props: AppProps) {
   const canSort = () => props.capabilities?.includes("workspace-sort-v1") === true
   const canTabs = () => props.capabilities?.includes("pane-tabs-v1") === true
   const canFileActions = () => props.capabilities?.includes("file-actions-v1") === true
+  const canRename = () => props.capabilities?.includes("file-rename-v1") === true
   const canResourceTasks = () => props.capabilities?.includes("resource-tasks-v1") === true
   // Keep multi-key Vifm prefixes alive while task/preview records cause rerenders.
   const keymap = createMemo(() => new VifmKeymap())
@@ -1308,6 +1328,38 @@ export function App(props: AppProps) {
       }, `${label} requested`)
       return
     }
+    if (action === "rename" || action === "rename-root") {
+      if (!canRename()) {
+        setNotice("Rename is unavailable")
+        return
+      }
+      const workspace = props.workspace
+      const entry = currentEntry()
+      if (workspace === undefined || entry === undefined) {
+        setNotice("Rename requires a file")
+        return
+      }
+      const snapshot = activeSnapshot()!
+      if (snapshot.selection_count !== 0) {
+        setNotice("Batch rename is not supported yet")
+        return
+      }
+      const context = actionContext(snapshot)
+      if (context === undefined || entry.device === undefined || entry.inode === undefined || entry.ctime_unix_ns === undefined) {
+        setNotice("Rename requires a stable core snapshot")
+        return
+      }
+      // Identity is re-resolved on submit so watcher refreshes while typing do
+      // not stale the command.
+      setDialog({
+        kind: "rename",
+        rootOnly: action === "rename-root",
+        pane: workspace.active_pane,
+        original: entry.name_display,
+        path_bytes_hex: entry.path_bytes_hex,
+      })
+      return
+    }
     const workspace = props.workspace
     if (workspace === undefined) {
       setNotice(`${action === "move" ? "Move" : "Copy"} requires a workspace`)
@@ -1429,6 +1481,43 @@ export function App(props: AppProps) {
         return
       }
       sendCommand({ action: "mount-ssh", pane: state.pane, remote }, "SSH mount requested")
+    } else if (state?.kind === "rename") {
+      const typed = value?.trim() ?? ""
+      const name = state.rootOnly ? `${typed}${splitFileName(state.original).extension}` : typed
+      if (name.length === 0 || new TextEncoder().encode(name).byteLength > 255 ||
+        name === "." || name === ".." || name.includes("/") || name.includes("\\") || name.includes("\0")) {
+        setNotice("Invalid name")
+        return
+      }
+      if (name === state.original) {
+        closeDialog()
+        return
+      }
+      // Re-resolve the entry and pane identity against the latest workspace:
+      // the user may have typed while a watcher refresh landed.
+      const workspace = props.workspace
+      const snapshot = workspace === undefined ? undefined : state.pane === "left" ? workspace.left : workspace.right
+      const entry = snapshot?.entries.find((candidate) => candidate.path_bytes_hex === state.path_bytes_hex)
+      const context = snapshot === undefined ? undefined : actionContext(snapshot)
+      if (workspace === undefined || snapshot === undefined || entry === undefined ||
+        context === undefined || entry.device === undefined || entry.inode === undefined || entry.ctime_unix_ns === undefined) {
+        setNotice("Rename source no longer exists")
+        closeDialog()
+        return
+      }
+      sendCommand({
+        action: "rename",
+        pane: state.pane,
+        ...context,
+        targets: [{
+          path_bytes_hex: entry.path_bytes_hex,
+          device: entry.device,
+          inode: entry.inode,
+          ctime_unix_ns: entry.ctime_unix_ns,
+          kind: entry.kind,
+        }],
+        name,
+      }, `Rename requested`)
     } else if (state?.kind === "delete") {
       sendCommand(state.command, `Delete ${state.target} requested`)
     }
