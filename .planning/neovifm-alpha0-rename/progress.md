@@ -18,9 +18,11 @@
   - integration 24 pass / 10 skip / 0 fail（新增 rename-session）。
   - `git diff --check` 干净。
   - typecheck 干净。
+  - PR #5 远端验收：`CI / gate` run `33974625832` 全绿（Linux/macOS/Windows）；`Preview / gate` run `33974625827` 全绿（四平台包）。
 
 ## 教训
 
 - stic 测试框架单文件 800 行上限（`STIC_MAX_LINES`），session.c 已满；新测试文件按通配符自动进入构建，无需改 Makefile。
 - 带输入框的命令不要在打开时固化 identity——真实 session 里 watcher 随时可能刷新 workspace，提交时按 path 重解析才对（yank/put 已验证同一模式）。
 - 手动协议复现（stdin 注入命令 + 观察 JSONL 输出）是定位 core/客户端分界问题的最快手段。
+- 跨平台 integration 不要断言 statusbar 短文案；渲染时序和截断会制造 macOS flake，该行为由单元测试覆盖，integration 只验证 core/command/文件系统结果。
