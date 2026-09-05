@@ -13,7 +13,8 @@
 - 验收（WSL Linux）：
   - `make -C tests neovifm_snapshot`：103 tests 全绿。
   - 串行 `make check`：全量回归 FAIL 0 / ERROR 0。
-  - 单测 182 pass（51 app + keymap/schema/yank 等）；coverage functions 92.92% / lines 97.24%（不低于基线）。
+  - 单测 183 pass（51 app + keymap/schema/yank 等）；coverage functions 92.72% / lines 97.24%。
+  - `bun audit` 首次 CI/本地校验报 `browserslist <= 4.28.6` 两个 high；用 `overrides` 固定到 4.28.9 后无漏洞。
   - integration 24 pass / 10 skip / 0 fail（新增 rename-session）。
   - `git diff --check` 干净。
   - typecheck 干净。

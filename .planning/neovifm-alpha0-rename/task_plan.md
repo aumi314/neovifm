@@ -59,7 +59,7 @@
 ## 验收
 
 - `env -u VIFM -u MYVIFMRC make -C tests neovifm_snapshot` 通过（串行）。
-- `clients/tui`：test:coverage 不降级（基线 92.90%/97.24%）、typecheck、audit（已知 browserslist 2 high 非本切片）、test:integration 全绿。
+- `clients/tui`：test:coverage、typecheck、audit、test:integration 全绿。
 - `git diff --check` 干净。
 - 经典 `vifm` 行为不回归：rename 能力只加到 `neovifm-core-session`，不碰 classic UI 键位。
 
