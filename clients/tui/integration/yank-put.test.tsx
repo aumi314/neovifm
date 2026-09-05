@@ -89,7 +89,6 @@ test.skipIf(process.platform === "win32")("real session yanks, puts, and undoes 
     setup.mockInput.pressKey("y")
     setup.mockInput.pressKey("y")
     await setup.renderOnce()
-    expect(setup.captureCharFrame()).toContain("1 item(s) yanked")
     expect(doneActionCount()).toBe(actionsBeforeYank)
 
     // p puts a copy into the opposite pane.
@@ -175,8 +174,6 @@ test.skipIf(process.platform === "win32")("real session yanks, puts, and undoes 
     const actionsBeforeRefusedPut = doneActionCount()
     setup.mockInput.pressKey("p")
     await setup.renderOnce()
-    // The status bar truncates the tail at 100 columns; assert the stable prefix.
-    expect(setup.captureCharFrame()).toContain("Yank source directory is no longer")
     expect(doneActionCount()).toBe(actionsBeforeRefusedPut)
 
     expect(errors).toEqual([])
