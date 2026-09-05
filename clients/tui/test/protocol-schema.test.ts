@@ -186,6 +186,16 @@ test("v3 file actions require snapshot identities instead of display paths", () 
   expect(actionTask.required).toEqual(["task_id", "command_sequence", "pane", "action", "state", "completed_count", "total_count", "partial"])
 })
 
+test("v3 schema exposes single-target rename with a bounded new name", () => {
+  const commandPayload = objectValue(previewSessionDefinitions.commandPayload)
+  const serialized = JSON.stringify(commandPayload)
+  expect(serialized).toContain('"rename"')
+  // rename keeps its single-target bound next to the action marker.
+  expect(serialized).toMatch(/"rename"[\s\S]*?"minItems":1,"maxItems":1/)
+  const actionTask = objectValue(previewSessionDefinitions.actionTaskPayload)
+  expect(JSON.stringify(objectValue(actionTask.properties).action)).toContain('"rename"')
+})
+
 test("v3 preview schema exposes bounded archive listings", () => {
   const taskPayload = objectValue(previewSessionDefinitions.taskPayload)
   const kind = objectValue(objectValue(taskPayload.properties).kind)

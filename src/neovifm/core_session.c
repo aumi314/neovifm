@@ -741,6 +741,20 @@ parse_command(const char line[], unsigned int previous_sequence,
 		}
 		strcpy(command->name, name);
 	}
+	else if(strcmp(action, "rename") == 0)
+	{
+		const char *const name = json_object_get_string(payload, "name");
+		command->kind = NV_SESSION_RENAME;
+		if(name == NULL || strlen(name) > NV_SESSION_MAX_NAME_BYTES ||
+				parse_action_identity(payload, command, 0, 1) != 0 ||
+				command->action_target_count != 1U)
+		{
+			nv_session_command_free(command);
+			json_value_free(value);
+			return -1;
+		}
+		strcpy(command->name, name);
+	}
 	else
 	{
 		nv_session_command_free(command);
@@ -764,7 +778,8 @@ static int
 command_is_action(nv_session_command_kind_t kind)
 {
 	return kind == NV_SESSION_COPY || kind == NV_SESSION_MOVE_FILES ||
-		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE;
+		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE ||
+		kind == NV_SESSION_RENAME;
 }
 
 static char *
@@ -859,9 +874,16 @@ pending_action_context_prepare(nv_pending_action_context_t *context,
 		context->destination_pane = command->pane == NV_SESSION_LEFT ?
 			NV_SESSION_RIGHT : NV_SESSION_LEFT;
 		const size_t destination_index = nv_workspace_session_active_tab_index(session,
-			context->destination_pane);
+				context->destination_pane);
 		context->destination_tab_id = nv_workspace_session_tab_id(session,
 				context->destination_pane, destination_index);
+	}
+	if(command->kind == NV_SESSION_RENAME)
+	{
+		/* A rename never leaves its pane: undo refreshes the same tab twice. */
+		context->has_destination = 1;
+		context->destination_pane = command->pane;
+		context->destination_tab_id = context->source_tab_id;
 	}
 	if(action != NULL && action->kind == NV_SESSION_MKDIR)
 	{
@@ -870,7 +892,8 @@ pending_action_context_prepare(nv_pending_action_context_t *context,
 		context->undo_parent_identity = action->source_directory_identity;
 	}
 	if(action != NULL && (action->kind == NV_SESSION_COPY ||
-			action->kind == NV_SESSION_MOVE_FILES) &&
+			action->kind == NV_SESSION_MOVE_FILES ||
+			action->kind == NV_SESSION_RENAME) &&
 			clone_prepared_action(action, &context->undo_action) != 0)
 		return -1;
 	return 0;
@@ -897,7 +920,8 @@ record_action_undo(const nv_pending_action_context_t *context,
 	}
 	if(state != NV_ACTION_TASK_DONE) return 0;
 	if((context->undo_action.kind != NV_SESSION_COPY &&
-			context->undo_action.kind != NV_SESSION_MOVE_FILES) ||
+			context->undo_action.kind != NV_SESSION_MOVE_FILES &&
+			context->undo_action.kind != NV_SESSION_RENAME) ||
 			context->undo_action.target_count == 0U ||
 			context->undo_action.destination_directory == NULL)
 	{
@@ -2057,7 +2081,8 @@ drain_action_events(nv_action_queue_t *queue,
 				}
 				if(event.state == NV_ACTION_TASK_DONE &&
 						(event.kind == NV_SESSION_COPY ||
-						 event.kind == NV_SESSION_MOVE_FILES))
+						 event.kind == NV_SESSION_MOVE_FILES ||
+						 event.kind == NV_SESSION_RENAME))
 				{
 					if(record_action_undo(context, event.state) == 0)
 						undo_recorded = 1;

@@ -8,7 +8,7 @@ export interface KeyLike {
   readonly meta: boolean
 }
 
-export type FunctionAction = "view" | "quick-view" | "edit" | "copy" | "move" | "mkdir" | "delete" | "mount-ssh" | "quit"
+export type FunctionAction = "view" | "quick-view" | "edit" | "copy" | "move" | "mkdir" | "delete" | "mount-ssh" | "quit" | "yank" | "put-copy" | "put-move" | "rename" | "rename-root"
 
 export type KeymapResult =
   | Readonly<{ kind: "command"; command: CoreSessionCommand }>
@@ -19,7 +19,7 @@ export type KeymapResult =
   | Readonly<{ kind: "pending" }>
   | Readonly<{ kind: "unhandled" }>
 
-type Prefix = "g" | "q" | "ctrl-w" | "shift-z"
+type Prefix = "g" | "q" | "ctrl-w" | "shift-z" | "d" | "y" | "c"
 
 const command = (value: CoreSessionCommand): KeymapResult => ({ kind: "command", command: value })
 
@@ -64,6 +64,25 @@ export class VifmKeymap {
 
     if (prefix === "q") {
       this.#count = undefined
+      return { kind: "unhandled" }
+    }
+
+    if (prefix === "d") {
+      this.#count = undefined
+      // Vifm maps dd to remove; DD stays reserved for a future permanent delete.
+      if (name === "d" && !key.shift) return { kind: "function", action: "delete" }
+      return { kind: "unhandled" }
+    }
+
+    if (prefix === "y") {
+      this.#count = undefined
+      if (name === "y" && !key.shift) return { kind: "function", action: "yank" }
+      return { kind: "unhandled" }
+    }
+
+    if (prefix === "c") {
+      this.#count = undefined
+      if (name === "w") return { kind: "function", action: key.shift ? "rename-root" : "rename" }
       return { kind: "unhandled" }
     }
 
@@ -119,8 +138,12 @@ export class VifmKeymap {
     if (name === "g" && key.shift) return command({ action: "move-to", target: "last" })
     if (name === "home") return command({ action: "move-to", target: "first" })
     if (name === "end") return command({ action: "move-to", target: "last" })
-    if (name === "p") return { kind: "function", action: key.shift ? "move" : "copy" }
-    if (name === "d") return { kind: "function", action: "delete" }
+    if (name === "p") return { kind: "function", action: key.shift ? "put-move" : "put-copy" }
+    if (name === "d") {
+      this.#prefix = "d"
+      return { kind: "pending" }
+    }
+    if (name === "y" && key.shift) return { kind: "function", action: "yank" }
     if (name === "u") return command({ action: "undo" })
     if (name === "n") return command({ action: "search-next", direction: key.shift ? -1 : 1 })
     if (name === "/" || name === "slash") return { kind: "search", direction: 1 }
@@ -132,6 +155,14 @@ export class VifmKeymap {
     }
     if (name === "g") {
       this.#prefix = "g"
+      return { kind: "pending" }
+    }
+    if (name === "y") {
+      this.#prefix = "y"
+      return { kind: "pending" }
+    }
+    if (name === "c") {
+      this.#prefix = "c"
       return { kind: "pending" }
     }
     if (name === "h" || name === "backspace") return command({ action: "parent" })
