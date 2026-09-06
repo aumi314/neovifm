@@ -19,3 +19,4 @@
   - `env -u VIFM -u MYVIFMRC make check`（串行）：PASS。
   - `git diff --check`：干净。
 - 未做（按纪律）：未 commit/push；协议 rename 仍单 target（刻意保留 `core_session.c` 与 `workspace_session.c` 的两道限制）。
+  - PR #6 远端验收：CI run `34016266392` 全绿（Linux/macOS/Windows + gate）；Preview run `34016266399` 四平台包全绿。
