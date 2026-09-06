@@ -172,6 +172,7 @@ export type CoreSessionCommand =
       ctime_unix_ns: string
       association_argv?: readonly string[]
     }>
+  | Readonly<{ action: "select-all" | "clear-selection"; pane?: "left" | "right" }>
   | Readonly<{ action: "enter" | "parent" | "toggle-selection" | "refresh" }>
 
 export interface CoreSessionRequest {

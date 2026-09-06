@@ -16,6 +16,9 @@ export type KeymapResult =
   | Readonly<{ kind: "search"; direction: -1 | 1 }>
   | Readonly<{ kind: "cancel" }>
   | Readonly<{ kind: "function"; action: FunctionAction }>
+  | Readonly<{ kind: "visual-enter" }>
+  | Readonly<{ kind: "visual-exit" }>
+  | Readonly<{ kind: "visual-move"; delta: -1 | 1 }>
   | Readonly<{ kind: "pending" }>
   | Readonly<{ kind: "unhandled" }>
 
@@ -33,12 +36,20 @@ function normalizedName(key: KeyLike): string {
 export class VifmKeymap {
   #prefix: Prefix | undefined
   #count: number | undefined
+  #visual = false
 
   // Bun 1.3.10 does not count an implicit constructor as covered.
   constructor() {}
 
+  // Selection itself stays core-owned; the app only mirrors this flag for the
+  // mode badge.
+  get visual(): boolean {
+    return this.#visual
+  }
+
   handle(key: KeyLike): KeymapResult {
     const name = normalizedName(key)
+    if (this.#visual) return this.#handleVisual(key, name)
     const prefix = this.#prefix
     this.#prefix = undefined
 
@@ -109,6 +120,7 @@ export class VifmKeymap {
     if (key.ctrl && name === "l") return command({ action: "refresh" })
     if (key.ctrl && name === "n") return command({ action: "move", delta: 1 })
     if (key.ctrl && name === "p") return command({ action: "move", delta: -1 })
+    if (key.ctrl && name === "a") return command({ action: "select-all" })
     if (key.ctrl || key.meta) {
       this.#count = undefined
       return { kind: "unhandled" }
@@ -148,6 +160,11 @@ export class VifmKeymap {
     if (name === "n") return command({ action: "search-next", direction: key.shift ? -1 : 1 })
     if (name === "/" || name === "slash") return { kind: "search", direction: 1 }
     if (name === "?" || name === "question") return { kind: "search", direction: -1 }
+    if (name === "escape") return command({ action: "clear-selection" })
+    if (name === "v") {
+      this.#visual = true
+      return { kind: "visual-enter" }
+    }
     if (key.shift) return { kind: "unhandled" }
     if (name === "q") {
       this.#prefix = "q"
@@ -175,5 +192,23 @@ export class VifmKeymap {
     if (name === "tab") return command({ action: "focus-next" })
     if (name === "t") return command({ action: "toggle-selection" })
     return { kind: "unhandled" }
+  }
+
+  #handleVisual(key: KeyLike, name: string): KeymapResult {
+    this.#prefix = undefined
+    if (name === "escape" || name === "v") {
+      this.#visual = false
+      this.#count = undefined
+      return { kind: "visual-exit" }
+    }
+    if (key.ctrl && name === "a") return command({ action: "select-all" })
+    if (!key.ctrl && !key.meta && !key.shift) {
+      // The app decides extend/shrink ordering from the cursor and anchor.
+      if (name === "j" || name === "down") return { kind: "visual-move", delta: 1 }
+      if (name === "k" || name === "up") return { kind: "visual-move", delta: -1 }
+    }
+    // Anything else leaves visual mode and runs its normal-mode meaning.
+    this.#visual = false
+    return this.handle(key)
   }
 }

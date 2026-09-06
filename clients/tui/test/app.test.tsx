@@ -1358,7 +1358,7 @@ test("submitting an unchanged or invalid rename sends no command", async () => {
   expect(setup.captureCharFrame()).toContain("Invalid name")
 })
 
-test("refuses rename without the capability or with an active selection", async () => {
+test("refuses rename without the capability and starts a queue with an active selection", async () => {
   const sent: unknown[] = []
   setup = await testRender(() => <App workspace={workspace} capabilities={capabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
   await setup.renderOnce()
@@ -1382,6 +1382,233 @@ test("refuses rename without the capability or with an active selection", async 
   setup.mockInput.pressKey("c")
   setup.mockInput.pressKey("w")
   await setup.renderOnce()
-  expect(setup.captureCharFrame()).toContain("Batch rename is not supported yet")
+  expect(setup.captureCharFrame()).not.toContain("Batch rename is not supported yet")
+  expect(setup.captureCharFrame()).toContain("Rename file.txt")
+})
+
+const hexBytes = (text: string) => Array.from(new TextEncoder().encode(text)).map((byte) => byte.toString(16).padStart(2, "0")).join("")
+
+const namedEntry = (name: string, selected = false): SnapshotPayload["entries"][number] => ({
+  ...snapshot.entries[0]!,
+  name_display: name,
+  name_bytes_hex: hexBytes(name),
+  path_display: `/tmp/${name}`,
+  path_bytes_hex: hexBytes(`/tmp/${name}`),
+  selected,
+})
+
+test("visual mode extends and shrinks the selection with ordered command pairs", async () => {
+  const entries = [namedEntry("a"), namedEntry("b"), namedEntry("c")]
+  const [current, setCurrent] = createSignal<WorkspaceSnapshotPayload>({
+    ...workspace,
+    left: { ...workspace.left, entry_count: 3, entries, cursor: 0 },
+  })
+  const sent: unknown[] = []
+  setup = await testRender(() => <App workspace={current()} onCommand={(command) => {
+    sent.push(command)
+    if (typeof command === "object" && command !== null && "action" in command && command.action === "move") {
+      const delta = (command as { delta: number }).delta
+      setCurrent((previous) => ({ ...previous, left: { ...previous.left, cursor: previous.left.cursor + delta } }))
+    }
+  }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain(" NORMAL ")
+
+  setup.mockInput.pressKey("v")
+  await setup.renderOnce()
+  expect(sent).toEqual([{ action: "toggle-selection" }])
+  expect(setup.captureCharFrame()).toContain(" VISUAL ")
+  expect(setup.captureCharFrame()).not.toContain(" NORMAL ")
+
+  setup.mockInput.pressKey("j")
+  expect(sent.slice(-2)).toEqual([{ action: "move", delta: 1 }, { action: "toggle-selection" }])
+  setup.mockInput.pressKey("j")
+  expect(sent.slice(-2)).toEqual([{ action: "move", delta: 1 }, { action: "toggle-selection" }])
+
+  // Shrinking deselects the row being left, then moves.
+  setup.mockInput.pressKey("k")
+  expect(sent.slice(-2)).toEqual([{ action: "toggle-selection" }, { action: "move", delta: -1 }])
+  setup.mockInput.pressKey("k")
+  expect(sent.slice(-2)).toEqual([{ action: "toggle-selection" }, { action: "move", delta: -1 }])
+
+  // At the top boundary nothing is sent and visual mode survives.
+  const count = sent.length
+  setup.mockInput.pressKey("k")
+  expect(sent.length).toBe(count)
+  expect(setup.captureCharFrame()).toContain(" VISUAL ")
+
+  // Escape leaves visual mode without touching the selection.
+  setup.mockInput.pressEscape()
+  await Bun.sleep(30)
+  await setup.renderOnce()
+  expect(sent.length).toBe(count)
+  expect(setup.captureCharFrame()).toContain(" NORMAL ")
+})
+
+test("Ctrl-A selects all and a normal-mode Escape clears only a non-empty selection", async () => {
+  const sent: unknown[] = []
+  const [current, setCurrent] = createSignal<WorkspaceSnapshotPayload>(workspace)
+  setup = await testRender(() => <App workspace={current()} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("a", { ctrl: true })
+  expect(sent).toEqual([{ action: "select-all" }])
+
+  // Nothing selected: a normal Escape stays a quiet no-op.
+  setup.mockInput.pressEscape()
+  await Bun.sleep(30)
+  expect(sent).toEqual([{ action: "select-all" }])
+
+  setCurrent({ ...workspace, left: { ...workspace.left, selection_count: 1, entries: [{ ...workspace.left.entries[0]!, selected: true }] } })
+  await setup.renderOnce()
+  setup.mockInput.pressEscape()
+  await Bun.sleep(30)
+  expect(sent.at(-1)).toEqual({ action: "clear-selection" })
+})
+
+test("selection rename walks a prefilled queue; Enter advances and Escape aborts the rest", async () => {
+  const sent: unknown[] = []
+  const selectedWorkspace: WorkspaceSnapshotPayload = {
+    ...workspace,
+    left: {
+      ...workspace.left,
+      entry_count: 3,
+      selection_count: 2,
+      entries: [namedEntry("first.txt", true), namedEntry("second.txt", true), namedEntry("third.txt")],
+    },
+  }
+  setup = await testRender(() => <App workspace={selectedWorkspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Rename first.txt (1/2)")
+
+  for (let i = 0; i < "first.txt".length; i++) setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("one.txt")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({
+    action: "rename",
+    targets: [{ path_bytes_hex: hexBytes("/tmp/first.txt") }],
+    name: "one.txt",
+  })
+  expect(setup.captureCharFrame()).toContain("Rename second.txt (2/2)")
+
+  // Escape abandons the remaining queue without touching the entry.
+  setup.mockInput.pressEscape()
+  await Bun.sleep(30)
+  await setup.renderOnce()
+  expect(sent.length).toBe(1)
+  expect(setup.captureCharFrame()).not.toContain("Rename second.txt")
+})
+
+test("cW batch rename keeps each entry's extension per queue item", async () => {
+  const sent: unknown[] = []
+  const selectedWorkspace: WorkspaceSnapshotPayload = {
+    ...workspace,
+    left: {
+      ...workspace.left,
+      entry_count: 2,
+      selection_count: 2,
+      entries: [namedEntry("a.txt", true), namedEntry("b.md", true)],
+    },
+  }
+  setup = await testRender(() => <App workspace={selectedWorkspace} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("W")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("keeps .txt")
+  setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("x")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({
+    action: "rename",
+    targets: [{ path_bytes_hex: hexBytes("/tmp/a.txt") }],
+    name: "x.txt",
+  })
+
+  expect(setup.captureCharFrame()).toContain("keeps .md")
+  setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("y")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent.at(-1)).toMatchObject({
+    action: "rename",
+    targets: [{ path_bytes_hex: hexBytes("/tmp/b.md") }],
+    name: "y.md",
+  })
+  expect(setup.captureCharFrame()).not.toContain("Rename second.txt")
+})
+
+test("rename queue skips unchanged names and re-resolves identity against the latest workspace", async () => {
+  const sent: unknown[] = []
+  const [current, setCurrent] = createSignal<WorkspaceSnapshotPayload>({
+    ...workspace,
+    left: {
+      ...workspace.left,
+      entry_count: 2,
+      selection_count: 2,
+      entries: [namedEntry("first.txt", true), namedEntry("second.txt", true)],
+    },
+  })
+  setup = await testRender(() => <App workspace={current()} capabilities={renameCapabilities} onCommand={(command) => { sent.push(command) }} />, { width: 100, height: 20 })
+  await setup.renderOnce()
+
+  setup.mockInput.pressKey("c")
+  setup.mockInput.pressKey("w")
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Rename first.txt (1/2)")
+
+  // Submitting the unchanged first name skips it without sending anything.
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
   expect(sent).toEqual([])
+  expect(setup.captureCharFrame()).toContain("Rename second.txt (2/2)")
+
+  // A watcher refresh lands before the second submit: the command must carry
+  // the refreshed identity instead of the open-time snapshot.
+  const refreshed = current()
+  setCurrent({
+    ...refreshed,
+    left: {
+      ...refreshed.left,
+      snapshot_revision: "99",
+      cwd_device: "100",
+      cwd_inode: "200",
+      cwd_ctime_unix_ns: "300",
+      entries: refreshed.left.entries.map((entry) => ({
+        ...entry,
+        device: "101",
+        inode: "201",
+        ctime_unix_ns: "301",
+      })),
+    },
+  })
+  await setup.renderOnce()
+  for (let i = 0; i < "second.txt".length; i++) setup.mockInput.pressBackspace()
+  await setup.mockInput.typeText("later.txt")
+  setup.mockInput.pressEnter()
+  await setup.renderOnce()
+  expect(sent).toEqual([{
+    action: "rename",
+    pane: "left",
+    cwd_bytes_hex: snapshot.cwd_bytes_hex,
+    snapshot_revision: "99",
+    cwd_device: "100",
+    cwd_inode: "200",
+    cwd_ctime_unix_ns: "300",
+    targets: [{
+      path_bytes_hex: hexBytes("/tmp/second.txt"),
+      device: "101",
+      inode: "201",
+      ctime_unix_ns: "301",
+      kind: "file",
+    }],
+    name: "later.txt",
+  }])
 })

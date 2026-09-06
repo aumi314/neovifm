@@ -151,3 +151,99 @@ test.skipIf(process.platform === "win32")("real session renames through cw, repo
     await session.completion
   }
 }, { timeout: 60000 })
+
+test.skipIf(process.platform === "win32")("real session batch renames a selection through cw with Esc abort and per-entry undo", async () => {
+  const executable = process.env.NEOVIFM_CORE_SESSION
+  if (executable === undefined || executable.length === 0) {
+    throw new Error("NEOVIFM_CORE_SESSION must point to the built core session")
+  }
+  root = await mkdtemp(resolve(tmpdir(), "neovifm-batch-rename-"))
+  const left = resolve(root, "left")
+  const right = resolve(root, "right")
+  await mkdir(left)
+  await mkdir(right)
+  await writeFile(resolve(left, "one.txt"), "one")
+  await writeFile(resolve(left, "three.txt"), "three")
+  await writeFile(resolve(left, "two.txt"), "two")
+
+  const [state, setState] = createSignal<ProbeState>(initialProbeState())
+  const errors: Error[] = []
+  const session = startCoreSession({
+    executable,
+    leftPath: left,
+    rightPath: right,
+    onRecord: (record) => setState((previous) => reduceProbeState(previous, record)),
+    onError: (error) => errors.push(error),
+  })
+  const appProps = () => {
+    const current = state()
+    return {
+      workspace: current.phase === "ready" && "workspace" in current ? current.workspace : undefined,
+      capabilities: current.phase === "ready" ? current.hello.capabilities : undefined,
+      onCommand: (command: Parameters<typeof session.send>[0]) => session.send(command),
+    }
+  }
+  const setup = await testRender(() => <App {...appProps()} />, { width: 100, height: 20 })
+  const names = () => {
+    const current = state()
+    if (!(current.phase === "ready" && "workspace" in current)) return []
+    return current.workspace.left.entries.map((entry) => entry.name_display)
+  }
+
+  try {
+    await waitFor(() => names().join(",") === "one.txt,three.txt,two.txt")
+
+    // Select all three entries in order: one.txt (0), three.txt (1), two.txt (2).
+    for (const _ of ["one.txt", "three.txt", "two.txt"]) {
+      setup.mockInput.pressKey("t")
+      setup.mockInput.pressKey("j")
+    }
+    await waitFor(() => {
+      const current = state()
+      return current.phase === "ready" && "workspace" in current && current.workspace.left.selection_count === 3
+    })
+
+    setup.mockInput.pressKey("c")
+    setup.mockInput.pressKey("w")
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Rename one.txt (1/3)")
+
+    for (let i = 0; i < "one.txt".length; i++) setup.mockInput.pressBackspace()
+    await setup.mockInput.typeText("r-one.txt")
+    setup.mockInput.pressEnter()
+    await waitFor(() => names().includes("r-one.txt"))
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Rename three.txt (2/3)")
+
+    for (let i = 0; i < "three.txt".length; i++) setup.mockInput.pressBackspace()
+    await setup.mockInput.typeText("r-three.txt")
+    setup.mockInput.pressEnter()
+    await waitFor(() => names().includes("r-three.txt"))
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Rename two.txt (3/3)")
+
+    // Aborting abandons only the remaining queue entries. The escape-key flush
+    // in opentui is delayed to disambiguate Alt prefixes, so let it settle
+    // before the next key.
+    setup.mockInput.pressEscape()
+    await Bun.sleep(60)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).not.toContain("Rename two.txt")
+    await waitFor(() => names().includes("two.txt") && names().includes("r-one.txt") && names().includes("r-three.txt"))
+    expect(await Bun.file(resolve(left, "r-one.txt")).text()).toBe("one")
+    expect(await Bun.file(resolve(left, "r-three.txt")).text()).toBe("three")
+    expect(await Bun.file(resolve(left, "two.txt")).text()).toBe("two")
+
+    // Each queue item produced its own undo step; u walks them back one by one.
+    setup.mockInput.pressKey("u")
+    await waitFor(() => names().includes("three.txt") && !names().includes("r-three.txt"))
+    setup.mockInput.pressKey("u")
+    await waitFor(() => names().includes("one.txt") && !names().includes("r-one.txt"))
+    expect(names().join(",")).toBe("one.txt,three.txt,two.txt")
+    expect(errors).toEqual([])
+  } finally {
+    setup.renderer.destroy()
+    session.close()
+    await session.completion
+  }
+}, { timeout: 60000 })

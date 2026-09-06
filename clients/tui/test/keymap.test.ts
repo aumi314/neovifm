@@ -182,3 +182,48 @@ test("opens directional name search and repeats matches with n/N", () => {
     command: { action: "search-next", direction: -1 },
   })
 })
+
+test("v/V enter visual-line by selecting the current row; v or Escape leave it", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("v"))).toEqual({ kind: "visual-enter" })
+  expect(map.handle(key("v", { shift: true, sequence: "V" }))).toEqual({ kind: "visual-exit" })
+  expect(map.handle(key("v"))).toEqual({ kind: "visual-enter" })
+  expect(map.handle(key("escape", { sequence: "\u001b" }))).toEqual({ kind: "visual-exit" })
+})
+
+test("visual-line movement defers extend/shrink ordering to the app state machine", () => {
+  const map = new VifmKeymap()
+  map.handle(key("v"))
+  expect(map.handle(key("j"))).toEqual({ kind: "visual-move", delta: 1 })
+  expect(map.handle(key("k"))).toEqual({ kind: "visual-move", delta: -1 })
+  expect(map.handle(key("down", { sequence: "\u001b[B" }))).toEqual({ kind: "visual-move", delta: 1 })
+  expect(map.handle(key("up", { sequence: "\u001b[A" }))).toEqual({ kind: "visual-move", delta: -1 })
+})
+
+test("navigation keys in visual-line exit the mode before running their normal command", () => {
+  const map = new VifmKeymap()
+  map.handle(key("v"))
+  expect(map.handle(key("g"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("g"))).toEqual({ kind: "command", command: { action: "move-to", target: "first" } })
+  expect(map.handle(key("j"))).toEqual({ kind: "command", command: { action: "move", delta: 1 } })
+
+  map.handle(key("v"))
+  expect(map.handle(key("h"))).toEqual({ kind: "command", command: { action: "parent" } })
+  expect(map.handle(key("t"))).toEqual({ kind: "command", command: { action: "toggle-selection" } })
+
+  map.handle(key("v"))
+  expect(map.handle(key("2"))).toEqual({ kind: "pending" })
+  expect(map.handle(key("j"))).toEqual({ kind: "command", command: { action: "move", delta: 1 } })
+})
+
+test("Ctrl-A selects all entries in normal and visual modes; Escape clears the selection in normal mode", () => {
+  const map = new VifmKeymap()
+  expect(map.handle(key("a", { ctrl: true }))).toEqual({ kind: "command", command: { action: "select-all" } })
+  expect(map.handle(key("escape", { sequence: "\u001b" }))).toEqual({ kind: "command", command: { action: "clear-selection" } })
+
+  map.handle(key("v"))
+  expect(map.handle(key("a", { ctrl: true }))).toEqual({ kind: "command", command: { action: "select-all" } })
+  // Visual mode survives select-all; Escape still exits it.
+  expect(map.handle(key("escape", { sequence: "\u001b" }))).toEqual({ kind: "visual-exit" })
+  expect(map.handle(key("escape", { sequence: "\u001b" }))).toEqual({ kind: "command", command: { action: "clear-selection" } })
+})
