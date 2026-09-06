@@ -1743,6 +1743,30 @@ nv_workspace_session_apply(nv_workspace_session_t *session,
 	}
 	if(command->kind == NV_SESSION_NEW_TAB)
 		return new_tab(session, command->pane, error);
+	if(command->kind == NV_SESSION_SELECT_ALL ||
+			command->kind == NV_SESSION_CLEAR_SELECTION)
+	{
+		nv_pane_snapshot_t *target = active_snapshot(session);
+		if(command->has_pane)
+		{
+			if(!valid_pane(command->pane))
+				return set_error(error, "invalid-command", "invalid pane");
+			target = pane_snapshot(session, command->pane);
+		}
+		if(command->kind == NV_SESSION_SELECT_ALL)
+		{
+			for(size_t i = 0U; i < target->entry_count; ++i)
+				target->entries[i].selected = 1;
+			target->selection_count = target->entry_count;
+		}
+		else
+		{
+			for(size_t i = 0U; i < target->entry_count; ++i)
+				target->entries[i].selected = 0;
+			target->selection_count = 0U;
+		}
+		return 0;
+	}
 	if(command->kind == NV_SESSION_ACTIVATE_TAB)
 	{
 		if(!valid_pane(command->pane))
@@ -1887,6 +1911,8 @@ nv_workspace_session_apply(nv_workspace_session_t *session,
 					"resource tasks must run through the core session command path");
 		case NV_SESSION_FOCUS:
 		case NV_SESSION_FOCUS_NEXT:
+		case NV_SESSION_SELECT_ALL:
+		case NV_SESSION_CLEAR_SELECTION:
 		case NV_SESSION_SORT_BY:
 		case NV_SESSION_SELECT_ENTRY:
 		case NV_SESSION_NEW_TAB:
