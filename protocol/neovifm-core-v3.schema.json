@@ -258,6 +258,7 @@
         { "type": "object", "required": ["action", "direction"], "properties": { "action": { "const": "search-next" }, "direction": { "enum": [-1, 1] } } },
         { "type": "object", "required": ["action", "pane", "key"], "properties": { "action": { "const": "sort-by" }, "pane": { "enum": ["left", "right"] }, "key": { "enum": ["name", "extension", "size", "ctime", "mtime", "mode", "type", "other"] } } },
         { "type": "object", "required": ["action", "pane", "index", "toggle"], "properties": { "action": { "const": "select-entry" }, "pane": { "enum": ["left", "right"] }, "index": { "type": "integer", "minimum": 0, "maximum": 4095 }, "toggle": { "type": "boolean" } } },
+        { "type": "object", "required": ["action"], "properties": { "action": { "enum": ["select-all", "clear-selection"] }, "pane": { "enum": ["left", "right"] } } },
         { "type": "object", "required": ["action", "pane"], "properties": { "action": { "const": "new-tab" }, "pane": { "enum": ["left", "right"] } } },
         { "type": "object", "required": ["action", "pane", "tab_id"], "properties": { "action": { "enum": ["activate-tab", "close-tab"] }, "pane": { "enum": ["left", "right"] }, "tab_id": { "$ref": "#/$defs/tabId" } } },
         { "type": "object", "required": ["action", "delta"], "properties": { "action": { "const": "tab-cycle" }, "delta": { "type": "integer", "minimum": -999, "maximum": 999, "not": { "const": 0 } } } },

@@ -678,6 +678,23 @@ parse_command(const char line[], unsigned int previous_sequence,
 		command->entry_index = (size_t)index;
 		command->toggle_selection = json_value_get_boolean(toggle);
 	}
+	else if(strcmp(action, "select-all") == 0 ||
+			strcmp(action, "clear-selection") == 0)
+	{
+		command->kind = strcmp(action, "select-all") == 0 ?
+			NV_SESSION_SELECT_ALL : NV_SESSION_CLEAR_SELECTION;
+		JSON_Value *const pane_value = json_object_get_value(payload, "pane");
+		if(pane_value != NULL)
+		{
+			if(json_value_get_type(pane_value) != JSONString || pane_from_string(
+					json_value_get_string(pane_value), &command->pane) != 0)
+			{
+				json_value_free(value);
+				return -1;
+			}
+			command->has_pane = 1;
+		}
+	}
 	else if(strcmp(action, "new-tab") == 0)
 	{
 		command->kind = NV_SESSION_NEW_TAB;
