@@ -24,7 +24,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
   }
 }
 
-test.skipIf(process.platform === "win32")("real session visual-line extends, shrinks, and survives exit; Ctrl-A and Escape manage the set", async () => {
+test("real session visual-line extends, shrinks, and survives exit; Ctrl-A and Escape manage the set", async () => {
   const executable = process.env.NEOVIFM_CORE_SESSION
   if (executable === undefined || executable.length === 0) {
     throw new Error("NEOVIFM_CORE_SESSION must point to the built core session")

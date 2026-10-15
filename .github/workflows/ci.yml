@@ -220,6 +220,15 @@ jobs:
             Tee-Object -FilePath windows-opener-integration.log
           exit $LASTEXITCODE
 
+      - name: Run Windows rename and multi-selection integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/rename-session.test.tsx ./integration/visual-session.test.tsx 2>&1 |
+            Tee-Object -FilePath windows-selection-integration.log
+          exit $LASTEXITCODE
+
       - name: Check generated worktree and whitespace
         run: git diff --check
 
@@ -233,6 +242,7 @@ jobs:
             clients/tui/windows-watcher-integration.log
             clients/tui/windows-actions-integration.log
             clients/tui/windows-opener-integration.log
+            clients/tui/windows-selection-integration.log
           if-no-files-found: ignore
 
   gate:
