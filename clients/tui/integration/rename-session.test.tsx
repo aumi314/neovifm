@@ -24,7 +24,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<vo
   }
 }
 
-test.skipIf(process.platform === "win32")("real session renames through cw, reports conflicts, and undoes", async () => {
+test("real session renames through cw, reports conflicts, and undoes", async () => {
   const executable = process.env.NEOVIFM_CORE_SESSION
   if (executable === undefined || executable.length === 0) {
     throw new Error("NEOVIFM_CORE_SESSION must point to the built core session")
@@ -152,7 +152,7 @@ test.skipIf(process.platform === "win32")("real session renames through cw, repo
   }
 }, { timeout: 60000 })
 
-test.skipIf(process.platform === "win32")("real session batch renames a selection through cw with Esc abort and per-entry undo", async () => {
+test("real session batch renames a selection through cw with Esc abort and per-entry undo", async () => {
   const executable = process.env.NEOVIFM_CORE_SESSION
   if (executable === undefined || executable.length === 0) {
     throw new Error("NEOVIFM_CORE_SESSION must point to the built core session")
