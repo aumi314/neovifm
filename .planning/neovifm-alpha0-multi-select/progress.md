@@ -18,5 +18,5 @@
   - `bun run test:integration`：26 pass / 10 skip（Windows-only）/ 0 fail。
   - `env -u VIFM -u MYVIFMRC make check`（串行）：PASS。
   - `git diff --check`：干净。
-- 未做（按纪律）：未 commit/push；协议 rename 仍单 target（刻意保留 `core_session.c` 与 `workspace_session.c` 的两道限制）。
+- 实现时协议 rename 仍单 target（刻意保留 `core_session.c` 与 `workspace_session.c` 的两道限制）；随后已 commit/push 并创建个人 fork Ready PR #6。
   - PR #6 远端验收：CI run `34016266392` 全绿（Linux/macOS/Windows + gate）；Preview run `34016266399` 四平台包全绿。
