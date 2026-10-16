@@ -3,15 +3,23 @@ import { afterEach, expect, test } from "bun:test"
 import { CoreClientError, type CoreSession, type CoreSessionRequest } from "../src/core-client.js"
 import {
   appPropsFor,
+  cliHelp,
+  cliVersion,
+  checkCore,
   defaultCoreProbePath,
+  parseCliArgs,
+  resolveCoreSessionPath,
   copyText,
   editorCommand,
   exitCodeFor,
+  isCliEntrypoint,
+  isStandaloneRuntime,
   main,
   openEditor,
   openFile,
   openResolvedFile,
   renderUntilDestroyed,
+  runCli,
   type MainDependencies,
   toUiErrorMessage,
 } from "../src/index.js"
@@ -102,6 +110,232 @@ test("uses a stable default location and sanitizes unknown errors", () => {
     ? "neovifm-core-session.exe"
     : "neovifm-core-session")
   expect(toUiErrorMessage(new Error("bad\u001bmessage"))).toBe("bad�message")
+})
+
+const sessionHello = parseProtocolRecord({
+  protocol: "neovifm-core",
+  version: 3,
+  type: "hello",
+  sequence: 0,
+  payload: { implementation: "session", capabilities: ["preview-session-v3"] },
+})
+
+const sessionWorkspace = parseProtocolRecord({
+  protocol: "neovifm-core",
+  version: 3,
+  type: "workspace-snapshot",
+  sequence: 1,
+  payload: {
+    command_sequence: 0,
+    trigger: "initial",
+    active_pane: "left",
+    left: snapshot.type === "snapshot" ? snapshot.payload : {},
+    right: snapshot.type === "snapshot" ? snapshot.payload : {},
+  },
+})
+
+test("parses the experimental portable CLI without treating paths as options", () => {
+  expect(parseCliArgs([])).toEqual({ action: "run", paths: [] })
+  expect(parseCliArgs(["left", "right"])).toEqual({ action: "run", paths: ["left", "right"] })
+  expect(parseCliArgs(["--", "-left"])).toEqual({ action: "run", paths: ["-left"] })
+  expect(parseCliArgs(["--help"])).toEqual({ action: "help" })
+  expect(parseCliArgs(["--version"])).toEqual({ action: "version" })
+  expect(parseCliArgs(["--check"])).toEqual({ action: "check" })
+  expect(() => parseCliArgs(["--unknown"])).toThrow("Unknown option")
+  expect(() => parseCliArgs(["one", "two", "three"])).toThrow("at most two")
+})
+
+test("resolves core overrides before standalone and source-tree defaults", () => {
+  const platform = process.platform
+  const executable = platform === "win32" ? "neovifm-core-session.exe" : "neovifm-core-session"
+  expect(resolveCoreSessionPath({
+    environment: { NEOVIFM_CORE_SESSION: " /new/core ", NEOVIFM_CORE_PROBE: "/legacy/core" },
+    standalone: true,
+    execPath: `/portable/neovifm${platform === "win32" ? ".exe" : ""}`,
+    sourceDirectory: "/source/clients/tui/src",
+    platform,
+  })).toBe("/new/core")
+  expect(resolveCoreSessionPath({
+    environment: { NEOVIFM_CORE_PROBE: "/legacy/core" },
+    standalone: true,
+    execPath: `/portable/neovifm${platform === "win32" ? ".exe" : ""}`,
+    sourceDirectory: "/source/clients/tui/src",
+    platform,
+  })).toBe("/legacy/core")
+  expect(resolveCoreSessionPath({
+    environment: {}, standalone: true, execPath: "/portable/neovifm",
+    sourceDirectory: "/source/clients/tui/src", platform: "linux",
+  })).toBe(`/portable/${executable.replace(".exe", "")}`)
+  expect(resolveCoreSessionPath({
+    environment: {}, standalone: false, execPath: "/portable/neovifm",
+    sourceDirectory: "/source/clients/tui/src", platform: "linux",
+  })).toBe("/source/src/neovifm-core-session")
+})
+
+test("detects Bun 1.3 standalone executables by their runtime filename", () => {
+  expect(isStandaloneRuntime("/usr/local/bin/bun", "linux")).toBe(false)
+  expect(isStandaloneRuntime("C:\\tools\\bun.exe", "win32")).toBe(false)
+  expect(isStandaloneRuntime("/opt/neovifm/neovifm", "linux")).toBe(true)
+  expect(isStandaloneRuntime("C:\\NeoVifm\\neovifm.exe", "win32")).toBe(true)
+})
+
+test("starts the CLI for source entrypoints and compiled standalone executables", () => {
+  expect(isCliEntrypoint(true, undefined)).toBe(true)
+  expect(isCliEntrypoint(false, true)).toBe(true)
+  expect(isCliEntrypoint(false, undefined)).toBe(false)
+})
+
+test("publishes deterministic help and build metadata", () => {
+  expect(cliHelp()).toContain("neovifm [LEFT [RIGHT]]")
+  expect(cliHelp()).toContain("--check")
+  expect(cliVersion({ commit: "1234567890abcdef", platform: "linux", arch: "x64" }))
+    .toBe("NeoVifm Workbench Alpha 0 (unreleased) 1234567890ab linux-x64")
+})
+
+test("checks a real v3 session without restoring or persisting workspace state", async () => {
+  let request: CoreSessionRequest | undefined
+  let closed = false
+  const result = await checkCore("/portable/neovifm-core-session", "/路径 with spaces", {
+    timeoutMs: 100,
+    startCoreSession: (value) => {
+      request = value
+      value.onRecord(sessionHello)
+      value.onRecord(sessionWorkspace)
+      return {
+        completion: Promise.resolve(),
+        send: async () => false,
+        close: () => { closed = true },
+      }
+    },
+  })
+
+  expect(request).toMatchObject({
+    executable: "/portable/neovifm-core-session",
+    leftPath: "/路径 with spaces",
+    rightPath: "/路径 with spaces",
+    resume: false,
+    persist: false,
+  })
+  expect(result).toEqual({ protocolVersion: 3, implementation: "session", capabilities: ["preview-session-v3"] })
+  expect(closed).toBe(true)
+})
+
+test("fails package checks that never publish an initial v3 workspace", async () => {
+  await expect(checkCore("/missing/core", "/tmp", {
+    timeoutMs: 10,
+    startCoreSession: () => ({
+      completion: new Promise<void>(() => undefined),
+      send: async () => false,
+      close: () => undefined,
+    }),
+  })).rejects.toThrow("timed out")
+})
+
+test("rejects invalid check timeouts and synchronous core spawn failures", async () => {
+  await expect(checkCore("/core", "/tmp", {
+    timeoutMs: 0,
+    startCoreSession: () => { throw new Error("must not start") },
+  })).rejects.toThrow("positive safe integer")
+  await expect(checkCore("/missing/core", "/tmp", {
+    timeoutMs: 100,
+    startCoreSession: () => { throw new CoreClientError("missing core", { kind: "spawn" }) },
+  })).rejects.toMatchObject({ kind: "spawn" })
+})
+
+test("rejects a structured core error during package checks", async () => {
+  const coreError = parseProtocolRecord({
+    protocol: "neovifm-core",
+    version: 3,
+    type: "error",
+    sequence: 1,
+    payload: { code: "open-directory", message: "denied", retryable: false },
+  })
+  await expect(checkCore("/core", "/tmp", {
+    timeoutMs: 100,
+    startCoreSession: (request) => {
+      request.onRecord(sessionHello)
+      request.onRecord(coreError)
+      return { completion: Promise.resolve(), send: async () => false, close: () => undefined }
+    },
+  })).rejects.toMatchObject({ kind: "core", coreCode: "open-directory" })
+})
+
+test("propagates package check callbacks and invalid protocol records", async () => {
+  await expect(checkCore("/core", "/tmp", {
+    timeoutMs: 100,
+    startCoreSession: (request) => {
+      request.onError(new CoreClientError("callback failure", { kind: "protocol" }))
+      return { completion: Promise.resolve(), send: async () => false, close: () => undefined }
+    },
+  })).rejects.toMatchObject({ kind: "protocol" })
+
+  await expect(checkCore("/core", "/tmp", {
+    timeoutMs: 100,
+    startCoreSession: (request) => {
+      request.onRecord(sessionWorkspace)
+      return { completion: Promise.resolve(), send: async () => false, close: () => undefined }
+    },
+  })).rejects.toThrow("Expected hello")
+
+  await expect(checkCore("/core", "/tmp", {
+    timeoutMs: 100,
+    startCoreSession: () => ({
+      completion: Promise.reject(new Error("completion failure")),
+      send: async () => false,
+      close: () => undefined,
+    }),
+  })).rejects.toThrow("completion failure")
+})
+
+test("runs help, check, and usage errors without mounting the full-screen renderer", async () => {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  let rendered = false
+  const base = dependencies((request) => {
+    request.onRecord(sessionHello)
+    request.onRecord(sessionWorkspace)
+    return { completion: Promise.resolve(), send: async () => false, close: () => undefined }
+  })
+  const runtime = {
+    stdout: (line: string) => { stdout.push(line) },
+    stderr: (line: string) => { stderr.push(line) },
+    cwd: () => "/portable cwd",
+  }
+
+  expect(await runCli(["--help"], { ...base, renderApp: async () => { rendered = true } }, runtime)).toBe(0)
+  expect(await runCli(["--check"], base, runtime)).toBe(0)
+  expect(await runCli(["--bad"], base, runtime)).toBe(2)
+  expect(rendered).toBe(false)
+  expect(stdout.join("\n")).toContain("Usage: neovifm")
+  expect(stdout.join("\n")).toContain("protocol v3")
+  expect(stderr.join("\n")).toContain("Unknown option")
+})
+
+test("runs version, normal workspace, and failed check CLI paths", async () => {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  let rendered = false
+  const runtime = {
+    stdout: (line: string) => { stdout.push(line) },
+    stderr: (line: string) => { stderr.push(line) },
+    cwd: () => "/tmp",
+  }
+  const ready = dependencies((request) => {
+    request.onRecord(sessionHello)
+    request.onRecord(sessionWorkspace)
+    return { completion: Promise.resolve(), send: async () => false, close: () => undefined }
+  })
+  expect(await runCli(["--version"], ready, runtime)).toBe(0)
+  expect(await runCli(["/tmp"], {
+    ...ready,
+    renderApp: async () => { rendered = true },
+  }, runtime)).toBe(0)
+  expect(rendered).toBe(true)
+
+  const failed = dependencies(() => { throw new CoreClientError("missing", { kind: "spawn" }) })
+  expect(await runCli(["--check"], failed, runtime)).toBe(1)
+  expect(stdout.join("\n")).toContain("Workbench Alpha 0")
+  expect(stderr.join("\n")).toContain("package check failed")
 })
 
 test("builds a direct editor argv without invoking a shell", () => {
