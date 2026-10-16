@@ -12,8 +12,8 @@ NeoVifm 的主线入口是 OpenTUI，当前阶段是 **Workbench Alpha 0 (unrele
 - 经典二进制、配置目录和 Lua API 仍使用 `vifm`，用于保持兼容。
 - `neovifm-core-probe` 发布无用户配置污染的目录快照；`neovifm-core-session` 为 OpenTUI 提供版本化 JSONL 会话协议。
 - `clients/tui` 已接入双 pane、pane tab、Vifm 风格键位基础、搜索、排序、任务中心、资源任务和 F3/Space 文本与媒体预览。
-- 当前仍未完成：完整 Vifm filetype/fileviewer/running 语义、Windows 文件操作与 Recycle Bin undo、真实 ZIP/SSH 挂载 E2E、图形图片/PDF/视频/音频渲染和完整低色彩/终端尺寸验收。
-- `file-actions-v1` 当前在 macOS 和 Linux 提供；macOS 使用 kqueue watcher，Linux session 暂无 watcher。Windows 已验证真实 core/TUI session 和 persistence，但文件操作、watcher 与默认 Win32 opener仍未完成。
+- 当前仍未完成：完整 Vifm filetype/fileviewer/running 语义、真实 ZIP/SSH 挂载 E2E、图形图片/PDF/视频/音频渲染和完整低色彩/终端尺寸验收。
+- `file-actions-v1` 当前在 macOS、Linux 和 Windows 10+ 提供；macOS 使用 kqueue watcher，Linux/Windows session 暂无 watcher。Windows 文件操作使用 Win32 handle identity、no-overwrite/no-follow、同卷 move 和 Recycle Bin delete；默认 Win32 opener 仍未完成。
 - 经典 Vifm 默认行为不被替换；OpenTUI 缺少 capability 时必须降级为可读的文本或结构化错误。
 - 当前平台和能力事实见 [CURRENT_STATE](docs/CURRENT_STATE.md)，架构决策见 [ADR 0001](docs/adr/0001-hybrid-core-opentui.md)，协议见 [NeoVifm Core Protocol](protocol/README.md)。
 

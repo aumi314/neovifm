@@ -15,6 +15,7 @@
 #include <string.h> /* strcmp() */
 
 #include "../utils/parson.h"
+#include "../compat/neovifm_fs.h"
 
 static nv_protocol_json_result_t serialize_payload(const char type[],
 		unsigned int version, unsigned int sequence, JSON_Value *payload_value,
@@ -320,14 +321,14 @@ nv_protocol_session_hello_json(unsigned int sequence)
 char *
 nv_protocol_preview_session_hello_json(unsigned int sequence)
 {
-#if defined(__APPLE__) || defined(__linux__)
+	if(nv_fs_actions_supported())
+	{
 	return hello_json(3U, "preview-session-v3", "workspace-sort-v1",
 			"pane-tabs-v1", "file-actions-v1", "open-v1",
 			"resource-tasks-v1", sequence);
-	#else
+	}
 	return hello_json(3U, "preview-session-v3", "workspace-sort-v1",
 			"pane-tabs-v1", NULL, "open-v1", "resource-tasks-v1", sequence);
-	#endif
 }
 
 static const char *
