@@ -9,10 +9,15 @@ NeoVifm 当前阶段是 **Workbench Alpha 0 (unreleased)**。C core 负责文件
 Git 远端约定：
 
 - `origin`：`Rex-Diego/neovifm`。
+- `fork`：`aumi314/neovifm`，保存未合并的堆叠工作。
 - `upstream`：只读 `vifm/vifm`，push URL 必须为 `DISABLED`。
 - 上游同步使用独立 merge commit，不与 NeoVifm 功能提交混合。
 
 Phase A 建立了三平台构建与 CI 基线。Phase B1 已将 Vifm 上游同步到 `f5d60eaa`，并让 Windows focused C、真实 core/TUI session、Unicode preview 和 session persistence 获得远端证据。`CI / gate` 只有三平台全部成功才通过。
+
+2026-10-15 核对：导师 master 为 `5db377e4e`（Linux actions PR #3 已合并）。六层未合并分支已顺序 rebase；个人 fork PR #1 为独立 Windows actions，PR #2–#6 继续堆叠，不应同时向导师 master 开 PR。当前任务是验证和试用，不再增加功能层；操作记录与备份位置见 `.planning/neovifm-alpha0-integration-trial/progress.md`。
+
+2026-10-16：Windows actions 已提交导师 Ready PR #4（4 commits，包含独立依赖安全修复），其个人 fork CI 全绿。六层保留，不自动合并；后续只在导师合并下层后依次整理。当前多选实现的 CI/Preview 和 Windows 包本机验收证据见 CURRENT_STATE 与当前计划，不要重开重复 PR 或继续堆功能。
 
 ## 启动与验证
 
@@ -38,6 +43,7 @@ Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core int
 ## 当前功能
 
 - 双 pane、pane tabs、排序、选择和当前目录文件名搜索。
+- 有界 visual-line、多选、全选/清选；有限 yank/put、单项与选择集逐项改名和逐项 undo。
 - protocol v3 preview/task/resource event。
 - 快速对面 pane 预览、task center 和结构化 open。
 - POSIX/macOS 和 Windows 正常退出 session 保存和恢复。
@@ -52,7 +58,7 @@ Windows 使用 `scripts/appveyor/win/` 构建和运行 C tests；真实 core int
 - watcher 只保持两个 pane 当前活动 tab 的系统资源，不常驻监听所有 inactive tab；文件 action worker 忙碌时暂缓 watcher refresh，动作终态刷新后恢复。
 - `neovifm-win-open.exe` 必须与 core 位于同一目录，且不是稳定用户 CLI。
 - ZIP/SSH 真实挂载依赖 helper，跨平台 E2E 未完成。
-- Vifm marks、registers、完整 visual/history、批量重命名、compare/sync 和完整 background facade 未完成。
+- Vifm marks、完整 registers/visual/history、模板批量改名、compare/sync 和完整 background facade 未完成；已有逐项改名队列不等于模板批量改名。
 - 当前 archive 未签名，不是 release；安装器、自动更新、插件 SDK、agent session 和全仓品牌重命名不属于 Alpha 0 基线。
 - 便携 TUI 必须与 `neovifm-core-session[.exe]` 同目录。Windows 还必须保留 sibling `neovifm-win-open.exe` 和构建审计列出的 `runtime/*.dll`。
 

@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-08-21
+最后核对：2026-10-16
 
 ## 阶段
 
@@ -9,6 +9,14 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 它已经越过只读 Hybrid M0：C core session 使用 protocol v3 发布双 pane、tab、排序、搜索、预览、任务和资源事件，OpenTUI 客户端负责交互与渲染。四个平台已有可解压运行的 CI 预览包；它仍没有正式 release、安装器、自动更新或稳定兼容承诺。
 
 经典 `vifm` 继续作为兼容入口和行为基准。当前阶段不进行品牌机械重命名，也不移除经典视图。
+
+## 合并与验证状态
+
+本文件描述当前多选开发分支，不等于导师仓库 `master` 已具备全部能力。导师已于 2026-08-27 合并 Linux actions PR #3，`origin/master` 为 `5db377e4e`。后续 Windows actions、opener、watcher、portable preview、rename 和 multi-select 仍按六层分支评审，尚未合并。
+
+2026-10-15 已备份旧 refs，并把六层依次接到该 master；逐层比较确认 rebase 未改变文件内容。个人 fork PR #1 现在以 `master` 为 base，后续 PR #2–#6 保持逐层依赖。本轮远端 CI 与 Windows 便携包试用证据统一记录在 [当前整合计划](../.planning/neovifm-alpha0-integration-trial/progress.md)；旧 run 只代表当时提交，不能替代本轮验证。预览 artifact 只保留 14 天，旧 artifact 不保证仍可下载。
+
+2026-10-16：六层在继承独立依赖安全修复后重新验证。Windows actions 已向导师创建独立 Ready [PR #4](https://github.com/Rex-Diego/neovifm/pull/4)，仅包含原 3 个 Windows 提交及 1 个安全修复。多选分支 `6c0d47416` 的 [CI](https://github.com/aumi314/neovifm/actions/runs/38840152651) 和 [Preview](https://github.com/aumi314/neovifm/actions/runs/38840152609) 全绿；Windows 包 merge source `f3f85f7461a5` 已在源码目录外验证 checksums、CLI、11 个原生集成用例和真实终端 F10 退出。这里是自动化验证，不代表人工使用体验或已发布。
 
 ## 架构边界
 
@@ -55,7 +63,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 ### Windows
 
 - NeoVifm core/TUI 的最低运行基线是 Windows 10；经典 `vifm.exe` 的兼容范围没有随之改写。低于 Windows 10 时 core 不发布 `file-actions-v1`。
-- MinGW64 能构建经典 `vifm`、两个 NeoVifm core 和内部 `neovifm-win-open.exe`，并真实运行现有 Windows C tests 和 13 个 NeoVifm focused fixtures。
+- MinGW64 能构建经典 `vifm`、两个 NeoVifm core 和内部 `neovifm-win-open.exe`，并真实运行现有 Windows C tests 和 NeoVifm focused suite。
 - 真实 core/TUI integration 已验证 Unicode 目录与文件名、无输入时的初始 preview、导航、pane 切换、tabs、搜索、排序和 refresh。
 - session state 路径优先级是 `NEOVIFM_SESSION_STATE`、`%LOCALAPPDATA%\neovifm\session.json`、`%USERPROFILE%\AppData\Local\neovifm\session.json`。
 - 状态文件和目录使用 Unicode Win32 路径；正常退出能创建、替换并跨进程恢复双 pane、tabs、排序和光标现场。
@@ -69,6 +77,8 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 ## 当前能做什么
 
 - 双 pane 导航、tab、选择、排序和当前目录文件名搜索。
+- `v`/`V` visual-line 扩展与收缩、`Ctrl+A` 全选、normal 模式 `Esc` 清选；退出 visual 保留选择集。
+- `yy`/`p`/`P` 提供有限的客户端 yank、复制与移动；`cw`/`cW` 支持单项改名和选择集逐项改名，`Esc` 中止剩余队列，已成功项可逐次 undo。不是完整 Vifm registers 或模板批量改名。
 - 不改变目标 pane 状态的快速预览。
 - 文本、目录、图片、PDF、音频、视频和 archive 的有界预览或 metadata 降级；效果依赖可用 helper。
 - 有界 Vifm `filetype`/`filextype`/`fileviewer` association 解析和结构化 open 结果。
@@ -91,7 +101,7 @@ TUI 由 Bun 1.3.10 编译成单文件 `neovifm[.exe]`，OpenTUI native runtime �
 
 ## 尚未完成
 
-- 完整 Vifm keymap、marks、registers、visual、history 和命令语义。
+- 完整 Vifm keymap、marks、registers、history 和命令语义；visual 目前仅支持上述有界 visual-line 行为。
 - 文件操作与 Vifm `ops`/`background`/`undo` 的最终收口。
 - ZIP/SSH 跨平台真实挂载 E2E。
 - Kitty/Sixel 等原生图形协议、音频封面和完整媒体体验。
@@ -146,11 +156,10 @@ bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.t
 bun test ./integration/windows-actions.test.ts
 bun test ./integration/windows-opener.test.ts
 bun test ./integration/cross-platform-watcher.test.ts
+bun test ./integration/rename-session.test.tsx ./integration/visual-session.test.tsx
 ```
 
-三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。C2 实现 run `31515109163` 三平台与 gate 全绿；Windows watcher integration 为 `1 pass / 0 fail / 5 expects`，覆盖中文、extended-length path、外部目录变化、预览更新和导航后重新绑定。
-
-C3 个人 fork Ready PR #4 的实现验证提交为 `b035f42d2`。run `32484040086` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；run `32484040073` 的 Windows x64、Linux x64、macOS arm64、macOS x64 与 `Preview / gate` 全绿。四个 artifact 对应验证 merge source `f891c8dedde8`，保留 14 天；详情记录在 `.planning/neovifm-alpha0-portable-preview/`。
+三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`，四平台便携包门槛见 `.github/workflows/preview.yml` 的 `Preview / gate`。各阶段历史 run、测试数量和限制保留在各自 `.planning/`；本轮证据见上述当前整合计划。远端门槛通过不代表已做本机图形终端人工体验或已合并。
 
 ## 文档优先级
 
