@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-10-15
+最后核对：2026-10-16
 
 ## 阶段
 
@@ -15,6 +15,8 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 本文件描述当前多选开发分支，不等于导师仓库 `master` 已具备全部能力。导师已于 2026-08-27 合并 Linux actions PR #3，`origin/master` 为 `5db377e4e`。后续 Windows actions、opener、watcher、portable preview、rename 和 multi-select 仍按六层分支评审，尚未合并。
 
 2026-10-15 已备份旧 refs，并把六层依次接到该 master；逐层比较确认 rebase 未改变文件内容。个人 fork PR #1 现在以 `master` 为 base，后续 PR #2–#6 保持逐层依赖。本轮远端 CI 与 Windows 便携包试用证据统一记录在 [当前整合计划](../.planning/neovifm-alpha0-integration-trial/progress.md)；旧 run 只代表当时提交，不能替代本轮验证。预览 artifact 只保留 14 天，旧 artifact 不保证仍可下载。
+
+2026-10-16：六层在继承独立依赖安全修复后重新验证。Windows actions 已向导师创建独立 Ready [PR #4](https://github.com/Rex-Diego/neovifm/pull/4)，仅包含原 3 个 Windows 提交及 1 个安全修复。多选分支 `6c0d47416` 的 [CI](https://github.com/aumi314/neovifm/actions/runs/38840152651) 和 [Preview](https://github.com/aumi314/neovifm/actions/runs/38840152609) 全绿；Windows 包 merge source `f3f85f7461a5` 已在源码目录外验证 checksums、CLI、11 个原生集成用例和真实终端 F10 退出。这里是自动化验证，不代表人工使用体验或已发布。
 
 ## 架构边界
 
