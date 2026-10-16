@@ -28,3 +28,11 @@
 - pending：Windows 图形终端人工体验；自动化结果不能替代主观体验。
 - out-of-scope：新功能、上游同步、release/tag/installer、自动合并、分支保护和备份清场。
 - 记忆只读；备份与复核现场保留，不清理。
+
+## 2026-10-16：审计阻塞修复
+
+- 第一轮顶层 Preview `38674572145` 四平台通过；CI `38674572197` 未通过。Linux/macOS 在 audit 报警；Windows 在 core-client 的 arrival-order fixture 超时，尚不能宣称本轮全绿。
+- B2b 第一轮 `38674316158` 确认同样被 audit 阻塞。补入独立安全提交 `f8f7c9694`：`brace-expansion@5.0.12`、`seroval@1.6.3`、`browserslist@4.28.9`，锁文件同步更新。依据 [brace-expansion advisory](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr) 与 [Seroval advisory](https://github.com/advisories/GHSA-jp82-f5mq-hwhp)，首个补丁仍有其他公告时继续升到覆盖全部已知公告的补丁，不忽略 severity。
+- B2b 现在是原 3 个 Windows 提交加 1 个独立依赖安全修复。后续五层再次 rebase 继承修复；rename 旧 browserslist 补丁与新锁文件冲突，保留已修复锁文件，只保留旧提交的历史说明。顶层与上一轮仅差依赖文件及 B2b 验证记录，产品文件无变化。
+- 本地 B2b：Bun 1.3.10 frozen install、audit 零告警、145 单测和 typecheck 通过。
+- Bun 1.3.10 经代理请求 registry cached manifest 的 304 时停滞；用 `--no-cache` 重新获取生成锁文件后正常。没有改全局代理或关闭 TLS 校验。
