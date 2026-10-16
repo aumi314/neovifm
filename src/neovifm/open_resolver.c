@@ -14,9 +14,16 @@
 #include <stdlib.h> /* calloc free malloc */
 #include <string.h> /* memcpy strlen strdup */
 
+#ifdef _WIN32
+#include "../utils/utf8.h"
+
+#include <windows.h> /* GetModuleFileNameW */
+#include <wchar.h> /* wchar_t wcsrchr wcslen */
+#endif
+
 static int set_error(nv_open_error_t *error, const char code[],
 		const char message[]);
-static const char *platform_opener(void);
+static char *platform_opener(void);
 static int bounded_length(const char value[], size_t maximum, size_t *length);
 static int association_kind_valid(nv_open_association_kind_t kind);
 static int association_kind_accepts(nv_open_intent_t intent,
@@ -86,14 +93,62 @@ argument_valid(const char argument[])
 	return 0;
 }
 
-static const char *
+static char *
 platform_opener(void)
 {
 #ifdef __APPLE__
-	return "/usr/bin/open";
+	return strdup("/usr/bin/open");
 #elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
 		defined(__NetBSD__) || defined(__sun__) || defined(_AIX)
-	return "xdg-open";
+	return strdup("xdg-open");
+#elif defined(_WIN32)
+	DWORD capacity = 512U;
+	wchar_t *module = NULL;
+	for(;;)
+	{
+		module = calloc(capacity, sizeof(*module));
+		if(module == NULL) return NULL;
+		const DWORD length = GetModuleFileNameW(NULL, module, capacity);
+		if(length == 0U)
+		{
+			free(module);
+			return NULL;
+		}
+		if(length < capacity - 1U) break;
+		free(module);
+		module = NULL;
+		if(capacity >= 32768U) return NULL;
+		capacity *= 2U;
+	}
+	wchar_t *slash = wcsrchr(module, L'\\');
+	wchar_t *const forward_slash = wcsrchr(module, L'/');
+	if(forward_slash != NULL && (slash == NULL || forward_slash > slash))
+	{
+		slash = forward_slash;
+	}
+	if(slash == NULL)
+	{
+		free(module);
+		return NULL;
+	}
+	static const wchar_t helper[] = L"neovifm-win-open.exe";
+	const size_t prefix = (size_t)(slash - module) + 1U;
+	const size_t helper_length = sizeof(helper)/sizeof(helper[0]);
+	if(prefix + helper_length > capacity)
+	{
+		wchar_t *const resized = realloc(module,
+				(prefix + helper_length)*sizeof(*module));
+		if(resized == NULL)
+		{
+			free(module);
+			return NULL;
+		}
+		module = resized;
+	}
+	memcpy(module + prefix, helper, helper_length*sizeof(*module));
+	char *const result = utf8_from_utf16(module);
+	free(module);
+	return result;
 #else
 	return NULL;
 #endif
@@ -162,7 +217,7 @@ resolve_open_argv(const char path[], const char *const association_argv[],
 		size_t association_argc, nv_open_resolution_t *resolution,
 		nv_open_error_t *error)
 {
-	const char *const opener = association_argc == 0U ? platform_opener() : NULL;
+	char *opener = association_argc == 0U ? platform_opener() : NULL;
 	if(association_argc == 0U && opener == NULL)
 	{
 		return set_error(error, "unsupported-platform",
@@ -173,12 +228,13 @@ resolve_open_argv(const char path[], const char *const association_argv[],
 	char **const argv = calloc(argc + 1U, sizeof(*argv));
 	if(argv == NULL)
 	{
+		free(opener);
 		return set_error(error, "out-of-memory", "failed to allocate open argv");
 	}
 	if(association_argc == 0U)
 	{
-		argv[0] = strdup(opener);
-		if(argv[0] == NULL) goto allocation_failed;
+		argv[0] = opener;
+		opener = NULL;
 	}
 	for(size_t i = 0U; i < association_argc; ++i)
 	{
@@ -195,6 +251,7 @@ resolve_open_argv(const char path[], const char *const association_argv[],
 	return 0;
 
 allocation_failed:
+	free(opener);
 	for(size_t i = 0U; i < argc; ++i) free(argv[i]);
 	free(argv);
 	return set_error(error, "out-of-memory", "failed to copy open argv");

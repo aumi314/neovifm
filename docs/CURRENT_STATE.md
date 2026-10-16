@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-08-10
+最后核对：2026-08-11
 
 ## 阶段
 
@@ -27,7 +27,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 | `preview-session-v3` | 是 | 是 | 是 | 双 pane snapshot、命令确认、preview/task 事件 |
 | `workspace-sort-v1` | 是 | 是 | 是 | core-owned 排序 |
 | `pane-tabs-v1` | 是 | 是 | 是 | pane tab 新建、切换、关闭和顺序 |
-| `open-v1` | 是 | 是 | 是 | 结构化 argv；Windows 没有默认平台 opener |
+| `open-v1` | 是 | 是 | 是 | 结构化 argv；Windows 通过内部 `neovifm-win-open.exe` 调用系统默认关联 |
 | `resource-tasks-v1` | 是 | 是 | 是 | 协议入口存在；真实 mount 仍依赖平台 helper |
 | `file-actions-v1` | 是 | 是 | 是（Windows 10+） | copy/move/mkdir/delete 与 copy/move/mkdir undo；Windows delete 依赖 Recycle Bin，不提供协议级 delete undo |
 
@@ -53,15 +53,16 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 ### Windows
 
 - NeoVifm core/TUI 的最低运行基线是 Windows 10；经典 `vifm.exe` 的兼容范围没有随之改写。低于 Windows 10 时 core 不发布 `file-actions-v1`。
-- MinGW64 能构建经典 `vifm`、`neovifm-core-probe.exe` 和 `neovifm-core-session.exe`，并真实运行现有 Windows C tests 和 13 个 NeoVifm focused fixtures。
+- MinGW64 能构建经典 `vifm`、两个 NeoVifm core 和内部 `neovifm-win-open.exe`，并真实运行现有 Windows C tests 和 13 个 NeoVifm focused fixtures。
 - 真实 core/TUI integration 已验证 Unicode 目录与文件名、无输入时的初始 preview、导航、pane 切换、tabs、搜索、排序和 refresh。
 - session state 路径优先级是 `NEOVIFM_SESSION_STATE`、`%LOCALAPPDATA%\neovifm\session.json`、`%USERPROFILE%\AppData\Local\neovifm\session.json`。
 - 状态文件和目录使用 Unicode Win32 路径；正常退出能创建、替换并跨进程恢复双 pane、tabs、排序和光标现场。
 - Windows 10+ 发布 `file-actions-v1`。路径在 Win32 边界使用 UTF-16 extended-length absolute path；copy/move/mkdir/delete 使用 handle identity、no-follow 和 no-overwrite 复核。
 - move 只允许同卷 handle rename，跨卷返回 `EXDEV`，不做 copy-delete；delete 先进入同目录私有隔离目录，再强制交给 Recycle Bin，失败时无覆盖恢复。
 - copy、move、mkdir 可以 undo；delete 依赖 Recycle Bin 自身恢复，不新增协议级 delete undo。
-- `open-v1` 没有默认 Win32 opener，只有显式 association 才可能解析成功。
-- 没有 watcher；默认 Win32 opener 仍未完成。
+- `open-v1` 优先使用显式 Vifm association；没有匹配项时，core 发布相邻 `neovifm-win-open.exe` 的绝对 argv，由 helper 通过 Unicode `ShellExecuteExW` 调用系统默认关联。
+- helper 是内部运行时依赖，不是稳定 CLI；缺失或系统关联失败时明确报错，不退化到 `explorer.exe` 或 shell。
+- 没有 watcher。
 
 ## 当前能做什么
 
@@ -76,7 +77,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
 - 完整 Vifm keymap、marks、registers、visual、history 和命令语义。
 - 文件操作与 Vifm `ops`/`background`/`undo` 的最终收口。
-- Windows watcher/default opener；Linux watcher 仍未接入 NeoVifm session。
+- Windows watcher；Linux watcher 仍未接入 NeoVifm session。
 - ZIP/SSH 跨平台真实挂载 E2E。
 - Kitty/Sixel 等原生图形协议、音频封面和完整媒体体验。
 - 安装器、发布包、稳定配置迁移和公开 release。
@@ -128,9 +129,10 @@ $env:NEOVIFM_CORE_PROBE = (Resolve-Path '..\..\src\neovifm-core-probe.exe')
 $env:NEOVIFM_CORE_SESSION = (Resolve-Path '..\..\src\neovifm-core-session.exe')
 bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.ts
 bun test ./integration/windows-actions.test.ts
+bun test ./integration/windows-opener.test.ts
 ```
 
-三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；重排后的远端 run `31352896921` 证明 Linux、macOS、Windows 和 `CI / gate` 全绿。
+三平台最终门槛见 `.github/workflows/ci.yml` 的 `CI / gate`。B1 合并提交 `f7eccff37` 的导师仓库 run `31349657903` 全绿。B2a 重排后 run `31352874801` 全绿，并已创建 Ready PR #3。B2b 本地 Windows real-core 为 `8 pass / 1 cross-volume skip`，另以本机 C/D 两个真实卷单独验证跨卷 move 为 `1 pass`；最终 B2b run `31353418721` 全绿。C1 最终 run `31358472484` 的 Linux、macOS、Windows 与 `CI / gate` 全绿；Windows opener integration 为 `2 pass / 0 fail`，真实验证系统默认关联、Unicode、空格和超过 260 字符的路径。
 
 ## 文档优先级
 

@@ -26,7 +26,7 @@
 | `j` / `Down` | Normal | 光标下移一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:127), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:381) | 保持 `keymap.test.ts` 与真实 session 的 cursor 断言 |
 | `k` / `Up` | Normal | 光标上移一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:128), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:382) | 同上，覆盖顶部边界 |
 | `h` / `Backspace` | Normal | 返回父目录 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:126), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:379) | 用真实目录进入/返回验证 cwd 变化 |
-| `l` / `Enter` | Normal | 进入目录；对文件走 viewer 入口 | `conflict` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:129), [`clients/tui/src/app.tsx`](/Users/rex/soft/neovifm/clients/tui/src/app.tsx:829), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:383) | 分目录/文件两组验收；文件应打开 F3 viewer，而非外部执行 |
+| `l` / `Enter` | Normal | 进入目录；普通文件通过 core-owned `open-v1` 打开 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:129), [`clients/tui/src/app.tsx`](/Users/rex/soft/neovifm/clients/tui/src/app.tsx:1289), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:383) | 分目录/文件两组验收；文件验证 association 优先、平台 fallback 和失败提示 |
 | `gg` | Normal | 跳到第一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:53), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:362) | 已有真实 session 测试，继续保留 |
 | `G` / `End` | Normal | 跳到最后一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:114), [`src/modes/normal.c`](/Users/rex/soft/neovifm/src/modes/normal.c:334) | 覆盖空列表与长列表 |
 | `Home` | Normal | 跳到第一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:115) | 保持单测 |
@@ -40,7 +40,7 @@
 | `Ctrl-P` | Normal | 上移一项 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:88), [`src/modes/view.c`](/Users/rex/soft/neovifm/src/modes/view.c:229) | 同上 |
 | `Ctrl-L` | Normal | 刷新 workspace | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:86) | 增加 command 发送断言或 session 回包断言 |
 | `Left` | Normal | 返回父目录 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:130) | 与 `h` 共用目录返回和 cursor 恢复路径 |
-| `Right` | Normal | 进入目录；对文件走 viewer 入口 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:131) | 与 `l` 共用目录/文件分流 |
+| `Right` | Normal | 进入目录；普通文件通过 `open-v1` 打开 | `supported` | [`clients/tui/src/keymap.ts`](/Users/rex/soft/neovifm/clients/tui/src/keymap.ts:131) | 与 `l` 共用目录/文件分流和平台 opener 验证 |
 
 ## Prefix / Pane / Tabs
 
@@ -111,5 +111,5 @@
 ## 当前可验收重点
 
 1. 已实现主线应继续锁定：`hjkl`、`gg/G`、`Ctrl-W w/h/l`、`gt/gT`、`F3-F10`。
-2. 当前最重要的显式偏差是：`l`/`Right` 对普通文件进入 F3 viewer；排序切换由排序控件和命令入口完成，不占用方向键。
+2. `l`/`Right` 对目录执行进入，对普通文件发送 `open-v1`；F3/Space 保持 preview 语义。排序切换由排序控件和命令入口完成，不占用方向键。
 3. 下一批最适合进入执行阶段的键位扩展，不是新增大量快捷键，而是让既有 `F3`、`e`、`l/Enter` 承接 archive、image、pdf、markdown、remote provider。
