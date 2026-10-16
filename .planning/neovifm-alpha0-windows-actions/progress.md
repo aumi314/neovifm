@@ -14,3 +14,10 @@
 - 完整回归暴露 classic snapshot 旧路径拼接缺少 NUL 终止；ASan 定位到 `classic_pane_adapter.c:join_path()`，一行边界修复后 ASan focused suite 和 serial `make check` 均通过。
 - 导师合并 PR #2 后，B2a 的 9 个 Linux 提交无冲突 rebase 到 `origin/master@f7eccff37`；重排后 CI `31352874801` 全绿，并创建 Ready PR #3。
 - B2b 的 3 个 Windows 提交重新堆叠到新 B2a；远端 CI `31352896921` 的 Linux、macOS、Windows 和 `CI / gate` 全绿。
+
+## 2026-10-16：合并后重验
+
+- Linux actions 已合并；B2b 接到导师 `master@5db377e4e`，原 3 个 Windows 提交 rebase 前后 tree 一致。
+- 新 run `38674316158` 暴露过期依赖审计失败：baseline-browser-mapping、browserslist、brace-expansion、seroval 共 8 项公告。保持 audit 门槛，单独补入安全修复，不改产品行为。
+- 按上游 advisory 固定 `browserslist@4.28.9`、`brace-expansion@5.0.12`、`seroval@1.6.3`；前者同时更新 baseline-browser-mapping 到安全版本。保留 Bun 1.3.10、OpenTUI/SolidJS 版本与 frozen lockfile。
+- 本地审计从 8 项告警变为 `No vulnerabilities found`；TUI `145 pass / 0 fail / 551 expects`，typecheck 通过。最终三平台 CI 仍需新提交远端证据。
