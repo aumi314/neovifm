@@ -1,6 +1,6 @@
 # NeoVifm 当前状态
 
-最后核对：2026-10-16
+最后核对：2026-10-30
 
 ## 阶段
 
@@ -10,13 +10,15 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
 经典 `vifm` 继续作为兼容入口和行为基准。当前阶段不进行品牌机械重命名，也不移除经典视图。
 
-## 合并与验证状态
+## 主线与验证状态
 
-本文件描述当前多选开发分支，不等于导师仓库 `master` 已具备全部能力。导师已于 2026-08-27 合并 Linux actions PR #3，`origin/master` 为 `5db377e4e`。后续 Windows actions、opener、watcher、portable preview、rename 和 multi-select 仍按六层分支评审，尚未合并。
+主线仓库是 `aumi314/neovifm`，`master` 是唯一日常集成分支。2026-10-30 起，Windows actions、Windows opener、跨平台 watcher、portable preview、rename 和 multi-select 六层工作通过整合 PR 合入该 `master`，不再以堆叠分支作为交付形态。
 
-2026-10-15 已备份旧 refs，并把六层依次接到该 master；逐层比较确认 rebase 未改变文件内容。个人 fork PR #1 现在以 `master` 为 base，后续 PR #2–#6 保持逐层依赖。本轮远端 CI 与 Windows 便携包试用证据统一记录在 [当前整合计划](../.planning/neovifm-alpha0-integration-trial/progress.md)；旧 run 只代表当时提交，不能替代本轮验证。预览 artifact 只保留 14 天，旧 artifact 不保证仍可下载。
+`Rex-Diego/neovifm` 保留为评审与回馈通道：导师已于 2026-08-27 合并 Linux actions（PR #3，`5db377e4e`），Windows actions [PR #4](https://github.com/Rex-Diego/neovifm/pull/4) 自 2026-10-16 起等待评审，不再阻塞主线推进。
 
-2026-10-16：六层在继承独立依赖安全修复后重新验证。Windows actions 已向导师创建独立 Ready [PR #4](https://github.com/Rex-Diego/neovifm/pull/4)，仅包含原 3 个 Windows 提交及 1 个安全修复。多选分支 `6c0d47416` 的 [CI](https://github.com/aumi314/neovifm/actions/runs/38840152651) 和 [Preview](https://github.com/aumi314/neovifm/actions/runs/38840152609) 全绿；Windows 包 merge source `f3f85f7461a5` 已在源码目录外验证 checksums、CLI、11 个原生集成用例和真实终端 F10 退出。这里是自动化验证，不代表人工使用体验或已发布。
+合入前的同一个树已有远端证据：`6c0d47416` 的 [CI](https://github.com/aumi314/neovifm/actions/runs/38840152651) 与 [Preview](https://github.com/aumi314/neovifm/actions/runs/38840152609) 全绿，Windows 包 merge source `f3f85f7461a5` 在源码目录外通过 checksums、CLI、11 个原生集成用例和真实终端 F10 退出；文档收尾提交 `b2a95ddb3` 的 [CI](https://github.com/aumi314/neovifm/actions/runs/38841150927) 与 [Preview](https://github.com/aumi314/neovifm/actions/runs/38841150720) 同样全绿。整合 PR 与合并后 `master` 的记录见 [`.planning/neovifm-alpha0-own-mainline/progress.md`](../.planning/neovifm-alpha0-own-mainline/progress.md)。
+
+整合前全部 refs 已 bundle 备份到 `~/myproject/02_Projects/neovifm-project-review/2026-10-30/neovifm-before-own-mainline.bundle`，旧六层分支与 `refs/codex-backups/` 保留未删。预览 artifact 只保留 14 天，旧 artifact 不保证仍可下载。CI 与 Preview 通过是自动化证据，不等于人工试用体验，也不等于 release。
 
 ## 架构边界
 

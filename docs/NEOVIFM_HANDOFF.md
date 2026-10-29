@@ -8,16 +8,15 @@ NeoVifm 当前阶段是 **Workbench Alpha 0 (unreleased)**。C core 负责文件
 
 Git 远端约定：
 
-- `origin`：`Rex-Diego/neovifm`。
-- `fork`：`aumi314/neovifm`，保存未合并的堆叠工作。
+- `fork`：`aumi314/neovifm`，主线仓库。日常提交、PR、CI 和预览包都在这里。
+- `origin`：`Rex-Diego/neovifm`，导师仓库，只作为评审与回馈通道。
 - `upstream`：只读 `vifm/vifm`，push URL 必须为 `DISABLED`。
 - 上游同步使用独立 merge commit，不与 NeoVifm 功能提交混合。
+- 新功能走短期分支 + PR + `CI / gate`，合并进 `master` 后不再叠加下一层。
 
 Phase A 建立了三平台构建与 CI 基线。Phase B1 已将 Vifm 上游同步到 `f5d60eaa`，并让 Windows focused C、真实 core/TUI session、Unicode preview 和 session persistence 获得远端证据。`CI / gate` 只有三平台全部成功才通过。
 
-2026-10-15 核对：导师 master 为 `5db377e4e`（Linux actions PR #3 已合并）。六层未合并分支已顺序 rebase；个人 fork PR #1 为独立 Windows actions，PR #2–#6 继续堆叠，不应同时向导师 master 开 PR。当前任务是验证和试用，不再增加功能层；操作记录与备份位置见 `.planning/neovifm-alpha0-integration-trial/progress.md`。
-
-2026-10-16：Windows actions 已提交导师 Ready PR #4（4 commits，包含独立依赖安全修复），其个人 fork CI 全绿。六层保留，不自动合并；后续只在导师合并下层后依次整理。当前多选实现的 CI/Preview 和 Windows 包本机验收证据见 CURRENT_STATE 与当前计划，不要重开重复 PR 或继续堆功能。
+2026-10-30 主线切换：个人仓库 `master` 成为唯一集成分支，六层成果通过整合 PR 合入；个人 fork 上以分支为 base 的堆叠 PR 合并后关闭，导师侧 PR #4 保持开放等待评审，不重开重复 PR。上一阶段的整理与试用记录保留在 `.planning/neovifm-alpha0-integration-trial/progress.md`，本轮记录在 `.planning/neovifm-alpha0-own-mainline/progress.md`。
 
 ## 启动与验证
 

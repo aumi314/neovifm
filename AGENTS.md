@@ -83,7 +83,9 @@ env -u VIFM -u MYVIFMRC make check
 
 ## Git 与上游
 
-- `origin` 是 NeoVifm fork。
+- 主线仓库是 `aumi314/neovifm`（本地 remote `fork`），其 `master` 是唯一日常集成分支；提交、CI 与预览包都以它为准。
+- `origin` 指向 `Rex-Diego/neovifm`，只作为评审和向上回馈的通道，不作为主线。
 - `upstream` 只读指向官方 `vifm/vifm`，push URL 必须保持禁用。
 - 上游同步提交与 NeoVifm 功能提交保持可区分，尽量让底层修复可回馈上游。
+- 新功能走短期分支 + PR + `CI / gate`，合并进主线后即结束该层依赖，不长期堆叠。
 - 未经明确要求不提交、不推送、不改写历史。
