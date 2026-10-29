@@ -16,6 +16,7 @@ import type {
 } from "./protocol.js"
 import type { CoreActionTarget, CoreSessionCommand } from "./core-client.js"
 import { VifmKeymap, type FunctionAction } from "./keymap.js"
+import { resolvePutSource, yankFromSnapshot, type YankBuffer } from "./yank.js"
 import {
   extensionGroup,
   formatFileSize,
@@ -93,6 +94,26 @@ type DialogState =
   | Readonly<{ kind: "mount-ssh"; pane: PaneId }>
   | Readonly<{ kind: "search"; direction: -1 | 1 }>
   | Readonly<{ kind: "delete"; target: string; command: CoreSessionCommand }>
+  | Readonly<{
+      kind: "rename"
+      rootOnly: boolean
+      pane: PaneId
+      original: string
+      path_bytes_hex: string
+      /** Remaining selection paths still queued behind the current one. */
+      queue?: readonly string[]
+      /** 1-based position and total size of the batch this dialog belongs to. */
+      step?: number
+      total?: number
+    }>
+
+// Splits a basename for Vifm's cW: the extension is the last dot suffix, but a
+// leading dot alone (dotfiles) never starts an extension.
+function splitFileName(name: string): { root: string; extension: string } {
+  const dot = name.lastIndexOf(".")
+  if (dot <= 0) return { root: name, extension: "" }
+  return { root: name.slice(0, dot), extension: name.slice(dot) }
+}
 
 function entryColor(entry: SnapshotPayload["entries"][number]): string {
   if (entry.kind === "directory") return COLORS.blue
@@ -569,7 +590,7 @@ function ActionDialog(props: {
   readonly onCancel: () => void
 }) {
   return <box flexGrow={1} width="100%" flexDirection="column" justifyContent="center" alignItems="center" backgroundColor={COLORS.mantle}>
-    <box width="70%" flexDirection="column" border borderStyle="double" borderColor={props.state.kind === "delete" ? COLORS.red : COLORS.lavender} backgroundColor={COLORS.base} padding={1} title={props.state.kind === "mkdir" ? "F7 MKDIR" : props.state.kind === "mount-ssh" ? "F9 SSH" : props.state.kind === "search" ? (props.state.direction === 1 ? "/ SEARCH" : "? SEARCH") : "F8 DELETE"}>
+    <box width="70%" flexDirection="column" border borderStyle="double" borderColor={props.state.kind === "delete" ? COLORS.red : COLORS.lavender} backgroundColor={COLORS.base} padding={1} title={props.state.kind === "mkdir" ? "F7 MKDIR" : props.state.kind === "mount-ssh" ? "F9 SSH" : props.state.kind === "search" ? (props.state.direction === 1 ? "/ SEARCH" : "? SEARCH") : props.state.kind === "rename" ? "cw RENAME" : "F8 DELETE"}>
       {props.state.kind === "search" ? <>
         <text fg={COLORS.text}>Search name</text>
         <input id="search-input" focused placeholder="file name" maxLength={255} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
@@ -582,6 +603,10 @@ function ActionDialog(props: {
         <text fg={COLORS.text}>Remote</text>
         <input id="mount-ssh-input" focused placeholder="user@host:/path" maxLength={16384} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
         <text fg={COLORS.subtext0}>Enter mounts read-only · Esc cancels</text>
+      </> : props.state.kind === "rename" ? <>
+        <text fg={COLORS.text}>Rename {props.state.original}{props.state.total === undefined ? "" : ` (${props.state.step}/${props.state.total})`}</text>
+        <input id="rename-input" focused value={props.state.rootOnly ? splitFileName(props.state.original).root : props.state.original} maxLength={255} onSubmit={(value) => props.onSubmit(typeof value === "string" ? value : undefined)} />
+        <text fg={COLORS.subtext0}>{props.state.rootOnly ? `Enter renames root, keeps ${splitFileName(props.state.original).extension || "no extension"}` : "Enter renames"} · Esc cancels</text>
       </> : <>
         <text fg={COLORS.text}>Delete {props.state.target}?</text>
         <text fg={COLORS.subtext0}>Enter/Y confirms · Esc/N cancels</text>
@@ -806,6 +831,7 @@ function StatusBar(props: {
   readonly resourceTasks?: readonly ResourceTaskPayload[]
   readonly compact: boolean
   readonly notice?: string
+  readonly visual: boolean
   readonly iconMode: IconMode
   readonly pathMode: StatusPathMode
   readonly homeDirectory?: string
@@ -841,9 +867,10 @@ function StatusBar(props: {
     : latestTask() === undefined ? `${snapshot()?.selection_count ?? 0} selected` : `task ${latestTask()!.state}`)
   const showDetail = () => props.notice !== undefined || !props.compact
     || latestAction()?.state === "failed" || latestAction()?.state === "cancelled" || latestAction()?.partial === true
+  const modeLabel = () => props.visual ? " VISUAL " : " NORMAL "
   if (props.iconMode === "ascii") {
     return <box width="100%" height={1} flexDirection="row" backgroundColor={COLORS.surface0}>
-      <text bg={COLORS.mauve} fg={COLORS.crust}> NORMAL </text>
+      <text bg={COLORS.mauve} fg={COLORS.crust}>{modeLabel()}</text>
       <text id="status-path" flexGrow={1} bg={COLORS.surface0} fg={COLORS.text} truncate onMouseDown={pathMouseDown}> {displayedPath()} </text>
       <text bg={COLORS.green} fg={COLORS.crust}> {snapshot()?.entry_count ?? 0} items </text>
       <text id="tasks-entry" bg={queuedActions() + queuedResources() !== 0 ? COLORS.yellow : COLORS.surface1} fg={COLORS.crust} onMouseDown={taskMouseDown}> Tasks {queuedActions() + queuedResources()}/{taskCount()} </text>
@@ -854,7 +881,7 @@ function StatusBar(props: {
   }
   return <box width="100%" height={1} flexDirection="row" backgroundColor={COLORS.crust}>
     <text fg={COLORS.mauve} bg={COLORS.crust}></text>
-    <text bg={COLORS.mauve} fg={COLORS.crust}> NORMAL </text>
+    <text bg={COLORS.mauve} fg={COLORS.crust}>{modeLabel()}</text>
     <text fg={COLORS.mauve} bg={COLORS.surface0}></text>
     <text id="status-path" flexGrow={1} bg={COLORS.surface0} fg={COLORS.text} truncate onMouseDown={pathMouseDown}> {displayedPath()} </text>
     <text fg={COLORS.surface0} bg={COLORS.green}></text>
@@ -941,6 +968,7 @@ function BottomBars(props: {
   readonly compact: boolean
   readonly stacked: boolean
   readonly notice?: string
+  readonly visual: boolean
   readonly canView: boolean
   readonly canFileActions: boolean
   readonly canResourceTasks: boolean
@@ -953,7 +981,7 @@ function BottomBars(props: {
   readonly onOpenTasks: () => void
 }) {
   return <box width="100%" height={3} flexDirection="column">
-    <StatusBar workspace={props.workspace} tasks={props.tasks} actionTasks={props.actionTasks} resourceTasks={props.resourceTasks} compact={props.compact} notice={props.notice} iconMode={props.iconMode} pathMode={props.pathMode} homeDirectory={props.homeDirectory} onTogglePath={props.onTogglePath} onCopyPath={props.onCopyPath} onOpenTasks={props.onOpenTasks} />
+    <StatusBar workspace={props.workspace} tasks={props.tasks} actionTasks={props.actionTasks} resourceTasks={props.resourceTasks} compact={props.compact} notice={props.notice} visual={props.visual} iconMode={props.iconMode} pathMode={props.pathMode} homeDirectory={props.homeDirectory} onTogglePath={props.onTogglePath} onCopyPath={props.onCopyPath} onOpenTasks={props.onOpenTasks} />
     <box id="bottom-divider" width="100%" height={1} border={["top"]} borderStyle="single" borderColor={COLORS.divider} />
     <FunctionRow keys={FUNCTION_KEYS} compact={props.stacked} canView={props.canView} canFileActions={props.canFileActions} canResourceTasks={props.canResourceTasks} iconMode={props.iconMode} onAction={props.onAction} />
   </box>
@@ -968,6 +996,7 @@ export function App(props: AppProps) {
   const canSort = () => props.capabilities?.includes("workspace-sort-v1") === true
   const canTabs = () => props.capabilities?.includes("pane-tabs-v1") === true
   const canFileActions = () => props.capabilities?.includes("file-actions-v1") === true
+  const canRename = () => props.capabilities?.includes("file-rename-v1") === true
   const canResourceTasks = () => props.capabilities?.includes("resource-tasks-v1") === true
   // Keep multi-key Vifm prefixes alive while task/preview records cause rerenders.
   const keymap = createMemo(() => new VifmKeymap())
@@ -978,9 +1007,12 @@ export function App(props: AppProps) {
   const [exitAfterTasks, setExitAfterTasks] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
   const [dialog, setDialog] = createSignal<DialogState | undefined>()
+  const [visual, setVisual] = createSignal(false)
+  let visualAnchor = -1
   const [pathMode, setPathMode] = createSignal<StatusPathMode>("absolute")
   let quickPreviewIdentity = ""
   let handledOpenSequence = 0
+  let yankBuffer: YankBuffer | undefined
 
   const activeSnapshot = () => props.workspace?.active_pane === "right" ? props.workspace.right : props.workspace?.left
   const currentEntry = () => {
@@ -1201,6 +1233,17 @@ export function App(props: AppProps) {
       setDialog({ kind: "mount-ssh", pane: workspace.active_pane })
       return
     }
+    if (action === "yank") {
+      const snapshot = activeSnapshot()
+      const buffer = snapshot === undefined ? undefined : yankFromSnapshot(snapshot)
+      if (buffer === undefined) {
+        setNotice("Nothing to yank")
+        return
+      }
+      yankBuffer = buffer
+      setNotice(`${buffer.entries.length} item(s) yanked`)
+      return
+    }
     if (!canFileActions()) {
       setNotice("Core file actions are unavailable")
       return
@@ -1246,6 +1289,99 @@ export function App(props: AppProps) {
           },
         })
       }
+      return
+    }
+    if (action === "put-copy" || action === "put-move") {
+      const move = action === "put-move"
+      const label = move ? "Put (move)" : "Put"
+      if (yankBuffer === undefined) {
+        setNotice("Yank buffer is empty")
+        return
+      }
+      const workspace = props.workspace
+      if (workspace === undefined) {
+        setNotice(`${label} requires a workspace`)
+        return
+      }
+      const destination = activeSnapshot()!
+      const destinationContext = actionContext(destination)
+      if (destinationContext === undefined) {
+        setNotice(`${label} requires a stable core snapshot`)
+        return
+      }
+      const resolved = resolvePutSource(yankBuffer, workspace)
+      if (!resolved.ok) {
+        if (resolved.reason === "source-not-visible") {
+          setNotice("Yank source directory is no longer visible")
+        } else if (resolved.reason === "stale-targets") {
+          const extra = resolved.missing.length - 1
+          setNotice(`Yank source no longer exists: ${resolved.missing[0]}${extra > 0 ? ` (+${extra} more)` : ""}`)
+        } else {
+          setNotice(`${label} requires a stable core snapshot`)
+        }
+        return
+      }
+      sendCommand({
+        action: move ? "move-files" : "copy",
+        pane: resolved.source.pane,
+        cwd_bytes_hex: resolved.source.cwd_bytes_hex,
+        snapshot_revision: resolved.source.snapshot_revision,
+        cwd_device: resolved.source.cwd_device,
+        cwd_inode: resolved.source.cwd_inode,
+        cwd_ctime_unix_ns: resolved.source.cwd_ctime_unix_ns,
+        destination_cwd_bytes_hex: destination.cwd_bytes_hex,
+        destination_snapshot_revision: destinationContext.snapshot_revision,
+        destination_cwd_device: destinationContext.cwd_device,
+        destination_cwd_inode: destinationContext.cwd_inode,
+        destination_cwd_ctime_unix_ns: destinationContext.cwd_ctime_unix_ns,
+        targets: resolved.targets,
+      }, `${label} requested`)
+      return
+    }
+    if (action === "rename" || action === "rename-root") {
+      if (!canRename()) {
+        setNotice("Rename is unavailable")
+        return
+      }
+      const workspace = props.workspace
+      const entry = currentEntry()
+      if (workspace === undefined || entry === undefined) {
+        setNotice("Rename requires a file")
+        return
+      }
+      const snapshot = activeSnapshot()!
+      const selected = snapshot.entries.filter((candidate) => candidate.selected)
+      if (selected.length !== 0) {
+        // Batch rename stays protocol-single-target: one dialog per entry, in
+        // selection order. Identity is re-resolved per submit, so the queue
+        // only needs the path hex of each pending item.
+        const first = selected[0]!
+        setDialog({
+          kind: "rename",
+          rootOnly: action === "rename-root",
+          pane: workspace.active_pane,
+          original: first.name_display,
+          path_bytes_hex: first.path_bytes_hex,
+          queue: selected.slice(1).map((candidate) => candidate.path_bytes_hex),
+          step: 1,
+          total: selected.length,
+        })
+        return
+      }
+      const context = actionContext(snapshot)
+      if (context === undefined || entry.device === undefined || entry.inode === undefined || entry.ctime_unix_ns === undefined) {
+        setNotice("Rename requires a stable core snapshot")
+        return
+      }
+      // Identity is re-resolved on submit so watcher refreshes while typing do
+      // not stale the command.
+      setDialog({
+        kind: "rename",
+        rootOnly: action === "rename-root",
+        pane: workspace.active_pane,
+        original: entry.name_display,
+        path_bytes_hex: entry.path_bytes_hex,
+      })
       return
     }
     const workspace = props.workspace
@@ -1334,6 +1470,30 @@ export function App(props: AppProps) {
       (error) => setNotice(`Open failed: ${error instanceof Error ? error.message : String(error)}`),
     )
   })
+  // Advances a batch rename to the next queued path that still exists in the
+  // latest workspace; vanished entries are skipped and an exhausted queue
+  // closes the dialog.
+  const nextRenameState = (state: Extract<DialogState, { kind: "rename" }>): DialogState | undefined => {
+    const queue = state.queue ?? []
+    const workspace = props.workspace
+    const snapshot = workspace === undefined ? undefined : state.pane === "left" ? workspace.left : workspace.right
+    for (let skipped = 0; skipped < queue.length; skipped++) {
+      const pathBytesHex = queue[skipped]!
+      const entry = snapshot?.entries.find((candidate) => candidate.path_bytes_hex === pathBytesHex)
+      if (entry === undefined) continue
+      return {
+        kind: "rename",
+        rootOnly: state.rootOnly,
+        pane: state.pane,
+        original: entry.name_display,
+        path_bytes_hex: entry.path_bytes_hex,
+        queue: queue.slice(skipped + 1),
+        step: (state.step ?? 1) + skipped + 1,
+        total: state.total,
+      }
+    }
+    return undefined
+  }
   const closeDialog = () => setDialog(undefined)
   const submitDialog = (value?: string) => {
     const state = dialog()
@@ -1369,6 +1529,45 @@ export function App(props: AppProps) {
         return
       }
       sendCommand({ action: "mount-ssh", pane: state.pane, remote }, "SSH mount requested")
+    } else if (state?.kind === "rename") {
+      const typed = value?.trim() ?? ""
+      const name = state.rootOnly ? `${typed}${splitFileName(state.original).extension}` : typed
+      if (name.length === 0 || new TextEncoder().encode(name).byteLength > 255 ||
+        name === "." || name === ".." || name.includes("/") || name.includes("\\") || name.includes("\0")) {
+        setNotice("Invalid name")
+        return
+      }
+      if (name === state.original) {
+        setDialog(nextRenameState(state))
+        return
+      }
+      // Re-resolve the entry and pane identity against the latest workspace:
+      // the user may have typed while a watcher refresh landed.
+      const workspace = props.workspace
+      const snapshot = workspace === undefined ? undefined : state.pane === "left" ? workspace.left : workspace.right
+      const entry = snapshot?.entries.find((candidate) => candidate.path_bytes_hex === state.path_bytes_hex)
+      const context = snapshot === undefined ? undefined : actionContext(snapshot)
+      if (workspace === undefined || snapshot === undefined || entry === undefined ||
+        context === undefined || entry.device === undefined || entry.inode === undefined || entry.ctime_unix_ns === undefined) {
+        setNotice("Rename source no longer exists")
+        setDialog(nextRenameState(state))
+        return
+      }
+      sendCommand({
+        action: "rename",
+        pane: state.pane,
+        ...context,
+        targets: [{
+          path_bytes_hex: entry.path_bytes_hex,
+          device: entry.device,
+          inode: entry.inode,
+          ctime_unix_ns: entry.ctime_unix_ns,
+          kind: entry.kind,
+        }],
+        name,
+      }, `Rename requested`)
+      setDialog(nextRenameState(state))
+      return
     } else if (state?.kind === "delete") {
       sendCommand(state.command, `Delete ${state.target} requested`)
     }
@@ -1448,7 +1647,32 @@ export function App(props: AppProps) {
     if (result.kind === "unhandled") return
     key.preventDefault()
     key.stopPropagation()
+    setVisual(keymap().visual)
     if (result.kind === "pending") return
+    if (result.kind === "visual-enter") {
+      const snapshot = activeSnapshot()
+      visualAnchor = snapshot?.cursor ?? -1
+      if (snapshot === undefined || snapshot.cursor < 0) return
+      sendCommand({ action: "toggle-selection" })
+      return
+    }
+    if (result.kind === "visual-exit") return
+    if (result.kind === "visual-move") {
+      const snapshot = activeSnapshot()
+      if (snapshot === undefined || snapshot.cursor < 0) return
+      const target = snapshot.cursor + result.delta
+      if (target < 0 || target >= snapshot.entries.length) return
+      // Moving away from the anchor extends (move, then toggle the new row);
+      // moving back towards it shrinks (untoggle the row being left).
+      if (Math.abs(target - visualAnchor) < Math.abs(snapshot.cursor - visualAnchor)) {
+        sendCommand({ action: "toggle-selection" })
+        sendCommand({ action: "move", delta: result.delta })
+      } else {
+        sendCommand({ action: "move", delta: result.delta })
+        sendCommand({ action: "toggle-selection" })
+      }
+      return
+    }
     if (result.kind === "cancel") {
       quit()
       return
@@ -1480,6 +1704,7 @@ export function App(props: AppProps) {
     if (result.kind === "command" && result.command.action === "focus-next") {
       setQuickPreviewOpen(false)
     }
+    if (result.kind === "command" && result.command.action === "clear-selection" && (activeSnapshot()?.selection_count ?? 0) === 0) return
     if (result.command.action === "enter" && currentEntry()?.kind !== "directory" && currentEntry()?.resource_kind !== "archive") {
       if (props.onOpen !== undefined) openCurrentFile()
       else dispatchFunction("view")
@@ -1526,6 +1751,6 @@ export function App(props: AppProps) {
     }>
       <ExitDialog taskCount={activeTaskCount()} stacked={dimensions().width < 110} onWait={waitForTasks} onCancel={cancelAndQuit} onReturn={() => setExitPrompt(false)} />
     </Show>
-    <BottomBars workspace={props.workspace} tasks={props.tasks} actionTasks={props.actionTasks} resourceTasks={props.resourceTasks} compact={dimensions().width < 90} stacked={dimensions().width < 72} notice={props.commandError ?? notice()} canView={currentEntry() !== undefined} canFileActions={canFileActions()} canResourceTasks={canResourceTasks()} iconMode={iconMode()} onAction={dispatchFunction} pathMode={pathMode()} homeDirectory={props.homeDirectory ?? process.env.HOME ?? process.env.USERPROFILE} onTogglePath={() => setPathMode((mode) => mode === "absolute" ? "home" : "absolute")} onCopyPath={copyStatusPath} onOpenTasks={() => setTaskCenterOpen((open) => !open)} />
+    <BottomBars workspace={props.workspace} tasks={props.tasks} actionTasks={props.actionTasks} resourceTasks={props.resourceTasks} compact={dimensions().width < 90} stacked={dimensions().width < 72} notice={props.commandError ?? notice()} visual={visual()} canView={currentEntry() !== undefined} canFileActions={canFileActions()} canResourceTasks={canResourceTasks()} iconMode={iconMode()} onAction={dispatchFunction} pathMode={pathMode()} homeDirectory={props.homeDirectory ?? process.env.HOME ?? process.env.USERPROFILE} onTogglePath={() => setPathMode((mode) => mode === "absolute" ? "home" : "absolute")} onCopyPath={copyStatusPath} onOpenTasks={() => setTaskCenterOpen((open) => !open)} />
   </box>
 }

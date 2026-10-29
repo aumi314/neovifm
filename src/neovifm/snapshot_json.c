@@ -15,6 +15,7 @@
 #include <string.h> /* strcmp() */
 
 #include "../utils/parson.h"
+#include "../compat/neovifm_fs.h"
 
 static nv_protocol_json_result_t serialize_payload(const char type[],
 		unsigned int version, unsigned int sequence, JSON_Value *payload_value,
@@ -22,10 +23,10 @@ static nv_protocol_json_result_t serialize_payload(const char type[],
 static JSON_Value *snapshot_payload(const nv_pane_snapshot_t *snapshot);
 static JSON_Value *entry_value(const nv_pane_entry_t *entry);
 static char *hello_json(unsigned int version, const char capability[],
-		const char secondary_capability[], const char tertiary_capability[],
-		const char quaternary_capability[], const char quinary_capability[],
-		const char senary_capability[],
-		unsigned int sequence);
+             const char secondary_capability[], const char tertiary_capability[],
+             const char quaternary_capability[], const char quinary_capability[],
+             const char senary_capability[], const char septenary_capability[],
+             unsigned int sequence);
 static char *error_json(unsigned int version, const nv_snapshot_error_t *error,
 		unsigned int sequence);
 static int snapshot_model_is_valid(const nv_pane_snapshot_t *snapshot);
@@ -249,7 +250,7 @@ static char *
 hello_json(unsigned int version, const char capability[],
 		const char secondary_capability[], const char tertiary_capability[],
 		const char quaternary_capability[], const char quinary_capability[],
-		const char senary_capability[],
+		const char senary_capability[], const char septenary_capability[],
 		unsigned int sequence)
 {
 	JSON_Value *const payload_value = json_value_init_object();
@@ -281,6 +282,9 @@ hello_json(unsigned int version, const char capability[],
 			(senary_capability != NULL &&
 			 json_array_append_string(capabilities, senary_capability) !=
 			 JSONSuccess) ||
+			(septenary_capability != NULL &&
+			 json_array_append_string(capabilities, septenary_capability) !=
+			 JSONSuccess) ||
 			json_object_set_value(payload, "capabilities",
 					capabilities_value) != JSONSuccess)
 	{
@@ -302,32 +306,35 @@ hello_json(unsigned int version, const char capability[],
 char *
 nv_protocol_hello_json(unsigned int sequence)
 {
-	return hello_json(0U, "snapshot-v0", NULL, NULL, NULL, NULL, NULL, sequence);
+	return hello_json(0U, "snapshot-v0", NULL, NULL, NULL, NULL, NULL, NULL,
+			sequence);
 }
 
 char *
 nv_protocol_workspace_hello_json(unsigned int sequence)
 {
-	return hello_json(1U, "workspace-v1", NULL, NULL, NULL, NULL, NULL, sequence);
+	return hello_json(1U, "workspace-v1", NULL, NULL, NULL, NULL, NULL, NULL,
+			sequence);
 }
 
 char *
 nv_protocol_session_hello_json(unsigned int sequence)
 {
-	return hello_json(2U, "workspace-session-v2", NULL, NULL, NULL, NULL, NULL, sequence);
+	return hello_json(2U, "workspace-session-v2", NULL, NULL, NULL, NULL, NULL,
+			NULL, sequence);
 }
 
 char *
 nv_protocol_preview_session_hello_json(unsigned int sequence)
 {
-#if defined(__APPLE__) || defined(__linux__)
+	if(nv_fs_actions_supported())
+	{
 	return hello_json(3U, "preview-session-v3", "workspace-sort-v1",
 			"pane-tabs-v1", "file-actions-v1", "open-v1",
-			"resource-tasks-v1", sequence);
-	#else
+			"resource-tasks-v1", "file-rename-v1", sequence);
+	}
 	return hello_json(3U, "preview-session-v3", "workspace-sort-v1",
-			"pane-tabs-v1", NULL, "open-v1", "resource-tasks-v1", sequence);
-	#endif
+			"pane-tabs-v1", NULL, "open-v1", "resource-tasks-v1", NULL, sequence);
 }
 
 static const char *
@@ -469,6 +476,7 @@ action_kind_name(nv_session_command_kind_t kind)
 	return kind == NV_SESSION_COPY ? "copy" :
 		kind == NV_SESSION_MOVE_FILES ? "move" :
 		kind == NV_SESSION_MKDIR ? "mkdir" :
+		kind == NV_SESSION_RENAME ? "rename" :
 		kind == NV_SESSION_DELETE ? "delete" : NULL;
 }
 

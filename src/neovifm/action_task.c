@@ -16,6 +16,8 @@
 
 #ifndef _WIN32
 #include <sys/time.h>
+#else
+#include <objbase.h>
 #endif
 
 #include "../compat/pthread.h"
@@ -82,7 +84,8 @@ static int
 action_kind_valid(nv_session_command_kind_t kind)
 {
 	return kind == NV_SESSION_COPY || kind == NV_SESSION_MOVE_FILES ||
-		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE;
+		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE ||
+		kind == NV_SESSION_RENAME;
 }
 
 static size_t
@@ -98,9 +101,11 @@ action_valid(const nv_session_prepared_action_t *action)
 			(action->pane != NV_SESSION_LEFT && action->pane != NV_SESSION_RIGHT) ||
 			action->source_directory == NULL) return 0;
 	if(action->kind == NV_SESSION_MKDIR) return action->name != NULL;
+	if(action->kind == NV_SESSION_RENAME && action->name == NULL) return 0;
 	if(action->targets == NULL || action->target_count == 0U ||
 			action->target_count > NV_SESSION_MAX_ACTION_PATHS) return 0;
-	if((action->kind == NV_SESSION_COPY || action->kind == NV_SESSION_MOVE_FILES) &&
+	if((action->kind == NV_SESSION_COPY || action->kind == NV_SESSION_MOVE_FILES ||
+			action->kind == NV_SESSION_RENAME) &&
 			action->destination_directory == NULL) return 0;
 	for(size_t i = 0U; i < action->target_count; ++i)
 	{
@@ -505,14 +510,13 @@ static const char *
 failure_code(nv_session_command_kind_t kind, int os_error)
 {
 	if(os_error == ECANCELED) return "action-cancelled";
-#if defined(ESTALE)
-	if(os_error == ESTALE) return "stale-action";
-#endif
+	if(os_error == NV_FS_STALE_ERRNO) return "stale-action";
 	if(kind == NV_SESSION_MOVE_FILES && os_error == EXDEV)
 		return "cross-filesystem-move-unsupported";
 	if(os_error == EEXIST) return "destination-exists";
 	return kind == NV_SESSION_COPY ? "copy-failed" :
 		kind == NV_SESSION_MOVE_FILES ? "move-failed" :
+		kind == NV_SESSION_RENAME ? "rename-failed" :
 		kind == NV_SESSION_MKDIR ? "mkdir-failed" : "delete-failed";
 }
 
@@ -573,7 +577,8 @@ execute_action(nv_action_queue_t *queue, nv_action_task_t *task,
 				task->action.source_directory_identity,
 				task->action.destination_directory_identity, target->identity,
 				task_cancelled, &cancel) :
-			task->action.kind == NV_SESSION_MOVE_FILES ?
+			task->action.kind == NV_SESSION_MOVE_FILES ||
+					task->action.kind == NV_SESSION_RENAME ?
 				nv_fs_move(target->path, destination,
 					task->action.source_directory_identity,
 					task->action.destination_directory_identity, target->identity,
@@ -604,6 +609,10 @@ static void *
 action_worker(void *data)
 {
 	nv_action_queue_t *const queue = data;
+#ifdef _WIN32
+	const HRESULT com_result = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	const int com_initialized = SUCCEEDED(com_result);
+#endif
 	for(;;)
 	{
 		pthread_mutex_lock(&queue->mutex);
@@ -653,6 +662,9 @@ action_worker(void *data)
 		}
 		pthread_mutex_unlock(&queue->mutex);
 	}
+#ifdef _WIN32
+	if(com_initialized) CoUninitialize();
+#endif
 	return NULL;
 }
 

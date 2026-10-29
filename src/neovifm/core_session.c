@@ -20,16 +20,13 @@
 # include <wchar.h>
 #endif
 
-#ifdef __APPLE__
-# include <fcntl.h>
-# include <sys/event.h>
-#endif
-
 #include "snapshot_json.h"
 #include "undo_bridge.h"
 #include "open_config.h"
 #include "session_platform.h"
+#include "session_watcher.h"
 #include "workspace_session.h"
+#include "../compat/neovifm_fs.h"
 #include "../utils/parson.h"
 #include "../utils/utf8.h"
 
@@ -84,6 +81,7 @@ static int set_error(nv_snapshot_error_t *error, const char code[],
 static int process_command_line(nv_workspace_session_t *session, char line[],
 		size_t line_capacity, unsigned int *output_sequence,
 		unsigned int *command_sequence, int *directory_changed,
+		nv_session_watcher_t *watcher,
 		nv_preview_queue_t *preview_queue, uint64_t *preview_generation,
 		nv_action_queue_t *action_queue,
 		nv_pending_action_context_t **pending_actions,
@@ -117,11 +115,18 @@ static int drain_action_events(nv_action_queue_t *queue,
 		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
 		uint64_t *preview_generation,
 		nv_pending_action_context_t **pending_actions,
-		size_t *retry_history_count);
+		size_t *retry_history_count, nv_session_watcher_t *watcher);
 static int drain_resource_events(nv_resource_task_queue_t *queue,
 		nv_workspace_session_t *session, unsigned int *output_sequence,
 		nv_preview_queue_t *preview_queue, uint64_t *preview_generation,
-		nv_pending_resource_context_t **pending_resources);
+		nv_pending_resource_context_t **pending_resources,
+		nv_session_watcher_t *watcher);
+static int drain_watcher_events(nv_session_watcher_t *watcher,
+		nv_workspace_session_t *session, unsigned int *output_sequence,
+		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
+		uint64_t *preview_generation, nv_action_queue_t *action_queue);
+static void sync_watcher_bindings(nv_session_watcher_t *watcher,
+		const nv_workspace_session_t *session);
 static int submit_archive_mount(const nv_workspace_session_t *session,
 		nv_resource_task_queue_t *queue, unsigned int command_sequence,
 		nv_pending_resource_context_t **pending_resources);
@@ -151,29 +156,6 @@ static int clone_prepared_action(const nv_session_prepared_action_t *source,
 		nv_session_prepared_action_t *destination);
 static int record_action_undo(const nv_pending_action_context_t *context,
 		nv_action_task_state_t state);
-
-#ifdef __APPLE__
-typedef struct
-{
-	int queue;
-	int left_fd;
-	int right_fd;
-} nv_session_watcher_t;
-
-static int hex_digit(char character);
-static char *hex_decode(const char hex[]);
-static int watcher_open_pane(nv_session_watcher_t *watcher,
-		const nv_workspace_session_t *session, nv_session_pane_t pane);
-static void watcher_stop_pane(nv_session_watcher_t *watcher,
-		nv_session_pane_t pane);
-static int watcher_init(nv_session_watcher_t *watcher,
-		const nv_workspace_session_t *session);
-static void watcher_free(nv_session_watcher_t *watcher);
-static int watcher_handle_events(nv_session_watcher_t *watcher,
-		nv_workspace_session_t *session, unsigned int *output_sequence,
-		unsigned int command_sequence, int *stdin_ready,
-		nv_action_queue_t *action_queue);
-#endif
 
 static int
 set_error(nv_snapshot_error_t *error, const char code[], const char message[])
@@ -696,6 +678,23 @@ parse_command(const char line[], unsigned int previous_sequence,
 		command->entry_index = (size_t)index;
 		command->toggle_selection = json_value_get_boolean(toggle);
 	}
+	else if(strcmp(action, "select-all") == 0 ||
+			strcmp(action, "clear-selection") == 0)
+	{
+		command->kind = strcmp(action, "select-all") == 0 ?
+			NV_SESSION_SELECT_ALL : NV_SESSION_CLEAR_SELECTION;
+		JSON_Value *const pane_value = json_object_get_value(payload, "pane");
+		if(pane_value != NULL)
+		{
+			if(json_value_get_type(pane_value) != JSONString || pane_from_string(
+					json_value_get_string(pane_value), &command->pane) != 0)
+			{
+				json_value_free(value);
+				return -1;
+			}
+			command->has_pane = 1;
+		}
+	}
 	else if(strcmp(action, "new-tab") == 0)
 	{
 		command->kind = NV_SESSION_NEW_TAB;
@@ -759,6 +758,20 @@ parse_command(const char line[], unsigned int previous_sequence,
 		}
 		strcpy(command->name, name);
 	}
+	else if(strcmp(action, "rename") == 0)
+	{
+		const char *const name = json_object_get_string(payload, "name");
+		command->kind = NV_SESSION_RENAME;
+		if(name == NULL || strlen(name) > NV_SESSION_MAX_NAME_BYTES ||
+				parse_action_identity(payload, command, 0, 1) != 0 ||
+				command->action_target_count != 1U)
+		{
+			nv_session_command_free(command);
+			json_value_free(value);
+			return -1;
+		}
+		strcpy(command->name, name);
+	}
 	else
 	{
 		nv_session_command_free(command);
@@ -782,7 +795,8 @@ static int
 command_is_action(nv_session_command_kind_t kind)
 {
 	return kind == NV_SESSION_COPY || kind == NV_SESSION_MOVE_FILES ||
-		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE;
+		kind == NV_SESSION_MKDIR || kind == NV_SESSION_DELETE ||
+		kind == NV_SESSION_RENAME;
 }
 
 static char *
@@ -877,9 +891,16 @@ pending_action_context_prepare(nv_pending_action_context_t *context,
 		context->destination_pane = command->pane == NV_SESSION_LEFT ?
 			NV_SESSION_RIGHT : NV_SESSION_LEFT;
 		const size_t destination_index = nv_workspace_session_active_tab_index(session,
-			context->destination_pane);
+				context->destination_pane);
 		context->destination_tab_id = nv_workspace_session_tab_id(session,
 				context->destination_pane, destination_index);
+	}
+	if(command->kind == NV_SESSION_RENAME)
+	{
+		/* A rename never leaves its pane: undo refreshes the same tab twice. */
+		context->has_destination = 1;
+		context->destination_pane = command->pane;
+		context->destination_tab_id = context->source_tab_id;
 	}
 	if(action != NULL && action->kind == NV_SESSION_MKDIR)
 	{
@@ -888,7 +909,8 @@ pending_action_context_prepare(nv_pending_action_context_t *context,
 		context->undo_parent_identity = action->source_directory_identity;
 	}
 	if(action != NULL && (action->kind == NV_SESSION_COPY ||
-			action->kind == NV_SESSION_MOVE_FILES) &&
+			action->kind == NV_SESSION_MOVE_FILES ||
+			action->kind == NV_SESSION_RENAME) &&
 			clone_prepared_action(action, &context->undo_action) != 0)
 		return -1;
 	return 0;
@@ -915,7 +937,8 @@ record_action_undo(const nv_pending_action_context_t *context,
 	}
 	if(state != NV_ACTION_TASK_DONE) return 0;
 	if((context->undo_action.kind != NV_SESSION_COPY &&
-			context->undo_action.kind != NV_SESSION_MOVE_FILES) ||
+			context->undo_action.kind != NV_SESSION_MOVE_FILES &&
+			context->undo_action.kind != NV_SESSION_RENAME) ||
 			context->undo_action.target_count == 0U ||
 			context->undo_action.destination_directory == NULL)
 	{
@@ -1282,6 +1305,7 @@ static int
 process_command_line(nv_workspace_session_t *session, char line[],
 		size_t line_capacity, unsigned int *output_sequence,
 		unsigned int *command_sequence, int *directory_changed,
+		nv_session_watcher_t *watcher,
 		nv_preview_queue_t *preview_queue, uint64_t *preview_generation,
 		nv_action_queue_t *action_queue,
 		nv_pending_action_context_t **pending_actions,
@@ -1617,6 +1641,7 @@ process_command_line(nv_workspace_session_t *session, char line[],
 			if(apply_undo_command(session, action_queue, &error, &location) == 0)
 			{
 				*command_sequence = next_sequence;
+				nv_session_watcher_reset(watcher);
 				const int result = write_workspace(session, (*output_sequence)++,
 						*command_sequence, "command");
 				if(result == 0 && submit_active_preview(session, preview_queue,
@@ -1633,6 +1658,7 @@ process_command_line(nv_workspace_session_t *session, char line[],
 		else if(nv_workspace_session_apply(session, &command, &error) == 0)
 		{
 			*command_sequence = next_sequence;
+			sync_watcher_bindings(watcher, session);
 			if(directory_changed != NULL)
 			{
 				for(nv_session_pane_t pane = NV_SESSION_LEFT;
@@ -2008,7 +2034,7 @@ drain_action_events(nv_action_queue_t *queue,
 		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
 		uint64_t *preview_generation,
 		nv_pending_action_context_t **pending_actions,
-		size_t *retry_history_count)
+		size_t *retry_history_count, nv_session_watcher_t *watcher)
 {
 	if(queue == NULL) return 0;
 	if(nv_action_queue_failed(queue))
@@ -2072,7 +2098,8 @@ drain_action_events(nv_action_queue_t *queue,
 				}
 				if(event.state == NV_ACTION_TASK_DONE &&
 						(event.kind == NV_SESSION_COPY ||
-						 event.kind == NV_SESSION_MOVE_FILES))
+						 event.kind == NV_SESSION_MOVE_FILES ||
+						 event.kind == NV_SESSION_RENAME))
 				{
 					if(record_action_undo(context, event.state) == 0)
 						undo_recorded = 1;
@@ -2108,6 +2135,10 @@ drain_action_events(nv_action_queue_t *queue,
 					nv_workspace_session_refresh_pane(session, NV_SESSION_RIGHT,
 							&error) != 0;
 			}
+			/* The action terminal snapshot already includes these filesystem
+			 * changes.  Reopen watchers so queued native notifications cannot
+			 * immediately invalidate the snapshot revision as a duplicate watch. */
+			if(!refresh_failed) nv_session_watcher_reset(watcher);
 			if(!refresh_failed && write_workspace(session, (*output_sequence)++,
 					command_sequence, "action") != 0) refresh_failed = 1;
 			if(refresh_failed)
@@ -2138,7 +2169,8 @@ static int
 drain_resource_events(nv_resource_task_queue_t *queue,
 		nv_workspace_session_t *session, unsigned int *output_sequence,
 		nv_preview_queue_t *preview_queue, uint64_t *preview_generation,
-		nv_pending_resource_context_t **pending_resources)
+		nv_pending_resource_context_t **pending_resources,
+		nv_session_watcher_t *watcher)
 {
 	if(queue == NULL) return 0;
 	if(nv_resource_task_queue_failed(queue))
@@ -2212,6 +2244,7 @@ drain_resource_events(nv_resource_task_queue_t *queue,
 				pending_resource_context_free(context);
 			}
 		}
+		if(state_changed) sync_watcher_bindings(watcher, session);
 		if(state_changed && write_workspace(session, (*output_sequence)++,
 				event.command_sequence, "resource") != 0)
 			refresh_failed = 1;
@@ -2240,7 +2273,7 @@ drain_resource_events_until_idle(nv_resource_task_queue_t *queue,
 	for(;;)
 	{
 		if(drain_resource_events(queue, session, output_sequence, preview_queue,
-				preview_generation, pending_resources) != 0)
+				preview_generation, pending_resources, NULL) != 0)
 			return -1;
 		if(!nv_resource_task_queue_busy(queue) && *pending_resources == NULL)
 			return 0;
@@ -2296,174 +2329,61 @@ open_hex_decode(const char hex[])
 	return decoded;
 }
 
-#ifdef __APPLE__
-static int
-hex_digit(char character)
-{
-	if(character >= '0' && character <= '9') return character - '0';
-	if(character >= 'a' && character <= 'f') return character - 'a' + 10;
-	return -1;
-}
-
-static char *
-hex_decode(const char hex[])
-{
-	if(hex == NULL) return NULL;
-	const size_t length = strlen(hex);
-	if(length % 2U != 0U || length/2U > NV_PANE_SNAPSHOT_MAX_HEX_BYTES/2U)
-	{
-		return NULL;
-	}
-	char *const decoded = malloc(length/2U + 1U);
-	if(decoded == NULL) return NULL;
-	for(size_t i = 0U; i < length; i += 2U)
-	{
-		const int high = hex_digit(hex[i]), low = hex_digit(hex[i + 1U]);
-		if(high < 0 || low < 0 || (high == 0 && low == 0))
-		{
-			free(decoded);
-			return NULL;
-		}
-		decoded[i/2U] = (char)((high << 4U) | low);
-	}
-	decoded[length/2U] = '\0';
-	return decoded;
-}
-
-static int
-watcher_fd(const nv_session_watcher_t *watcher, nv_session_pane_t pane)
-{
-	return pane == NV_SESSION_LEFT ? watcher->left_fd : watcher->right_fd;
-}
-
-static int *
-watcher_fd_slot(nv_session_watcher_t *watcher, nv_session_pane_t pane)
-{
-	return pane == NV_SESSION_LEFT ? &watcher->left_fd : &watcher->right_fd;
-}
-
-static const char *
-pane_name(nv_session_pane_t pane)
-{
-	return pane == NV_SESSION_LEFT ? "left" : "right";
-}
-
 static void
-watcher_stop_pane(nv_session_watcher_t *watcher, nv_session_pane_t pane)
+sync_watcher_bindings(nv_session_watcher_t *watcher,
+		const nv_workspace_session_t *session)
 {
-	int *const fd = watcher_fd_slot(watcher, pane);
-	if(*fd >= 0) close(*fd);
-	*fd = -1;
-}
-
-static int
-watcher_open_pane(nv_session_watcher_t *watcher,
-		const nv_workspace_session_t *session, nv_session_pane_t pane)
-{
-	const nv_pane_snapshot_t *const snapshot = pane == NV_SESSION_LEFT ?
-		&session->left : &session->right;
-	char *const path = hex_decode(snapshot->cwd_bytes_hex);
-	if(path == NULL) return -1;
-	const int fd = open(path, O_EVTONLY);
-	free(path);
-	if(fd < 0) return -1;
-	struct kevent change;
-	EV_SET(&change, (uintptr_t)fd, EVFILT_VNODE, EV_ADD | EV_ENABLE | EV_CLEAR,
-			NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB, 0, NULL);
-	if(kevent(watcher->queue, &change, 1, NULL, 0, NULL) == -1)
-	{
-		close(fd);
-		return -1;
-	}
-	watcher_stop_pane(watcher, pane);
-	*watcher_fd_slot(watcher, pane) = fd;
-	return 0;
-}
-
-static int
-watcher_init(nv_session_watcher_t *watcher, const nv_workspace_session_t *session)
-{
-	*watcher = (nv_session_watcher_t){ .queue = -1, .left_fd = -1, .right_fd = -1 };
-	watcher->queue = kqueue();
-	if(watcher->queue < 0)
-	{
-		fputs("neovifm-core-session: kqueue unavailable; watcher disabled\n", stderr);
-		return -1;
-	}
-	struct kevent change;
-	EV_SET(&change, STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
-	if(kevent(watcher->queue, &change, 1, NULL, 0, NULL) == -1)
-	{
-		fputs("neovifm-core-session: stdin kqueue registration failed; watcher disabled\n", stderr);
-		watcher_free(watcher);
-		return -1;
-	}
+	unsigned int failed_panes = 0U;
+	nv_session_watcher_sync(watcher, session, &failed_panes);
 	for(nv_session_pane_t pane = NV_SESSION_LEFT; pane <= NV_SESSION_RIGHT; ++pane)
 	{
-		if(watcher_open_pane(watcher, session, pane) != 0)
-		{
-			fprintf(stderr, "neovifm-core-session: %s pane watcher disabled: %s\n",
-					pane_name(pane), strerror(errno));
-		}
+		if((failed_panes & (1U << (unsigned int)pane)) == 0U) continue;
+		fprintf(stderr, "neovifm-core-session: %s pane watcher disabled: %s\n",
+			pane == NV_SESSION_LEFT ? "left" : "right", strerror(errno));
 	}
-	return 0;
-}
-
-static void
-watcher_free(nv_session_watcher_t *watcher)
-{
-	watcher_stop_pane(watcher, NV_SESSION_LEFT);
-	watcher_stop_pane(watcher, NV_SESSION_RIGHT);
-	if(watcher->queue >= 0) close(watcher->queue);
-	*watcher = (nv_session_watcher_t){ .queue = -1, .left_fd = -1, .right_fd = -1 };
 }
 
 static int
-watcher_handle_events(nv_session_watcher_t *watcher,
+drain_watcher_events(nv_session_watcher_t *watcher,
 		nv_workspace_session_t *session, unsigned int *output_sequence,
-		unsigned int command_sequence, int *stdin_ready,
-		nv_action_queue_t *action_queue)
+		unsigned int command_sequence, nv_preview_queue_t *preview_queue,
+		uint64_t *preview_generation, nv_action_queue_t *action_queue)
 {
-	struct kevent events[3];
-	const struct timespec timeout = { .tv_sec = 0, .tv_nsec = 12L*1000L*1000L };
-	const int count = kevent(watcher->queue, NULL, 0, events,
-			sizeof(events)/sizeof(events[0]), &timeout);
-	if(count < 0)
+	sync_watcher_bindings(watcher, session);
+	if(action_queue != NULL && nv_action_queue_busy(action_queue)) return 0;
+	unsigned int changed_panes = 0U;
+	unsigned int failed_panes = 0U;
+	nv_session_watcher_poll(watcher, &changed_panes, &failed_panes);
+	for(nv_session_pane_t pane = NV_SESSION_LEFT; pane <= NV_SESSION_RIGHT; ++pane)
 	{
-		if(errno == EINTR) return 0;
-		fputs("neovifm-core-session: kqueue wait failed; watcher disabled\n", stderr);
-		return -1;
-	}
-	for(int i = 0; i < count; ++i)
-	{
-		if(events[i].filter == EVFILT_READ && events[i].ident == STDIN_FILENO)
+		const unsigned int mask = 1U << (unsigned int)pane;
+		if((failed_panes & mask) != 0U)
 		{
-			*stdin_ready = 1;
-			continue;
+			fprintf(stderr, "neovifm-core-session: %s pane watcher stopped\n",
+				pane == NV_SESSION_LEFT ? "left" : "right");
 		}
-		const nv_session_pane_t pane = events[i].ident == (uintptr_t)watcher_fd(watcher,
-				NV_SESSION_LEFT) ? NV_SESSION_LEFT : NV_SESSION_RIGHT;
-		if(events[i].filter != EVFILT_VNODE || watcher_fd(watcher, pane) < 0 ||
-				events[i].ident != (uintptr_t)watcher_fd(watcher, pane)) continue;
-		if(nv_action_queue_busy(action_queue)) continue;
+		if((changed_panes & mask) == 0U) continue;
 		nv_snapshot_error_t error = {};
 		if(nv_workspace_session_refresh_pane(session, pane, &error) != 0)
 		{
 			fprintf(stderr, "neovifm-core-session: %s pane watch refresh stopped: %s\n",
-					pane_name(pane), error.message == NULL ? "unknown error" : error.message);
+					pane == NV_SESSION_LEFT ? "left" : "right",
+					error.message == NULL ? "unknown error" : error.message);
 			nv_snapshot_error_free(&error);
-			watcher_stop_pane(watcher, pane);
+			nv_session_watcher_disable(watcher, pane);
+			changed_panes &= ~mask;
 			continue;
 		}
 		nv_snapshot_error_free(&error);
-		if(write_workspace(session, (*output_sequence)++, command_sequence, "watch") != 0)
-		{
-			return -1;
-		}
 	}
+	if(changed_panes == 0U) return 0;
+	sync_watcher_bindings(watcher, session);
+	if(write_workspace(session, (*output_sequence)++, command_sequence, "watch") != 0)
+		return -1;
+	if(submit_active_preview(session, preview_queue, preview_generation) != 0)
+		fputs("neovifm-core-session: failed to queue watch preview\n", stderr);
 	return 0;
 }
-#endif
 
 static int
 core_main(int argc, char *argv[])
@@ -2486,14 +2406,13 @@ core_main(int argc, char *argv[])
 		nv_snapshot_error_free(&error);
 		return 1;
 	}
-#ifndef _WIN32
-	if(nv_undo_bridge_init() != 0)
+	const int actions_supported = nv_fs_actions_supported();
+	if(actions_supported && nv_undo_bridge_init() != 0)
 	{
 		fputs("neovifm-core-session: failed to initialize undo bridge\n", stderr);
 		nv_workspace_session_free(&session);
 		return 1;
 	}
-#endif
 	nv_preview_queue_t *const preview_queue = nv_preview_queue_alloc();
 	if(preview_queue == NULL)
 	{
@@ -2503,8 +2422,8 @@ core_main(int argc, char *argv[])
 		return 1;
 	}
 	nv_action_queue_t *action_queue = NULL;
-#if defined(__APPLE__) || defined(__linux__)
-	action_queue = nv_action_queue_alloc();
+	if(actions_supported) action_queue = nv_action_queue_alloc();
+	if(actions_supported && action_queue == NULL)
 	if(action_queue == NULL)
 	{
 		fputs("neovifm-core-session: failed to initialize action queue\n", stderr);
@@ -2513,7 +2432,6 @@ core_main(int argc, char *argv[])
 		nv_workspace_session_free(&session);
 		return 1;
 	}
-#endif
 	nv_resource_task_queue_t *const resource_queue = nv_resource_task_queue_alloc();
 	if(resource_queue == NULL)
 	{
@@ -2567,103 +2485,49 @@ core_main(int argc, char *argv[])
 	nv_pending_resource_context_t *pending_resources = NULL;
 	size_t retry_history_count = 0U;
 	int result = 0;
-#ifdef __APPLE__
-	nv_session_watcher_t watcher = {};
-	if(watcher_init(&watcher, &session) == 0)
-	{
-		for(;;)
-		{
-			int stdin_ready = 0;
-			if(watcher_handle_events(&watcher, &session, &output_sequence,
-					command_sequence, &stdin_ready, action_queue) != 0)
-			{
-				result = 1;
-				break;
-			}
-			if(drain_preview_events(preview_queue, &output_sequence) != 0)
-			{
-				result = 1;
-				break;
-			}
-				if(drain_action_events(action_queue, &session, &output_sequence,
-					command_sequence, preview_queue, &preview_generation,
-					&pending_actions, &retry_history_count) != 0)
-			{
-				result = 1;
-					break;
-				}
-				if(drain_resource_events(resource_queue, &session, &output_sequence,
-						preview_queue, &preview_generation, &pending_resources) != 0)
-				{
-					result = 1;
-					break;
-				}
-			if(!stdin_ready) continue;
-			if(fgets(line, sizeof(line), stdin) == NULL) break;
-			int directory_changed = 0;
-			if(process_command_line(&session, line, sizeof(line), &output_sequence,
-					&command_sequence, &directory_changed, preview_queue,
-					&preview_generation, action_queue, &pending_actions,
-					&retry_history_count, resource_queue, &pending_resources) != 0)
-			{
-				result = 1;
-				break;
-			}
-			for(nv_session_pane_t pane = NV_SESSION_LEFT; directory_changed != 0 &&
-					pane <= NV_SESSION_RIGHT; ++pane)
-			{
-				if((directory_changed & (1 << pane)) == 0) continue;
-				if(watcher_open_pane(&watcher, &session, pane) != 0)
-				{
-					fprintf(stderr,
-							"neovifm-core-session: %s pane watcher disabled: %s\n",
-							pane_name(pane), strerror(errno));
-					watcher_stop_pane(&watcher, pane);
-				}
-			}
-		}
-		watcher_free(&watcher);
-	}
-	else
-#endif
+	nv_session_watcher_t *const watcher = nv_session_watcher_alloc();
+	if(watcher == NULL)
+		fputs("neovifm-core-session: watcher unavailable; automatic refresh disabled\n",
+			stderr);
 	for(;;)
 	{
+		if(drain_preview_events(preview_queue, &output_sequence) != 0 ||
+				drain_action_events(action_queue, &session, &output_sequence,
+					command_sequence, preview_queue, &preview_generation,
+					&pending_actions, &retry_history_count, watcher) != 0 ||
+				drain_resource_events(resource_queue, &session, &output_sequence,
+					preview_queue, &preview_generation, &pending_resources,
+					watcher) != 0 ||
+				drain_watcher_events(watcher, &session, &output_sequence,
+					command_sequence, preview_queue, &preview_generation,
+					action_queue) != 0)
+		{
+			result = 1;
+			break;
+		}
 		int stdin_ready = 0;
 		if(nv_session_poll_stdin(&stdin_ready) != 0)
 		{
 			result = 1;
 			break;
 		}
-			if(drain_preview_events(preview_queue, &output_sequence) != 0 ||
-					drain_action_events(action_queue, &session, &output_sequence,
-						command_sequence, preview_queue, &preview_generation,
-						&pending_actions, &retry_history_count) != 0)
-		{
-			result = 1;
-				break;
-			}
-			if(drain_resource_events(resource_queue, &session, &output_sequence,
-					preview_queue, &preview_generation, &pending_resources) != 0)
-			{
-				result = 1;
-				break;
-			}
 		if(!stdin_ready) continue;
 		if(fgets(line, sizeof(line), stdin) == NULL) break;
-				if(process_command_line(&session, line, sizeof(line), &output_sequence,
-						&command_sequence, NULL, preview_queue, &preview_generation,
-						action_queue, &pending_actions, &retry_history_count,
-						resource_queue, &pending_resources) != 0)
+		if(process_command_line(&session, line, sizeof(line), &output_sequence,
+				&command_sequence, NULL, watcher, preview_queue, &preview_generation,
+				action_queue, &pending_actions, &retry_history_count,
+				resource_queue, &pending_resources) != 0)
 		{
 			result = 1;
 			break;
 		}
 	}
+	nv_session_watcher_free(watcher);
 	nv_action_queue_cancel_all(action_queue);
 	nv_resource_task_queue_cancel_all(resource_queue);
 	if(drain_action_events(action_queue, &session, &output_sequence,
 				command_sequence, preview_queue, &preview_generation,
-				&pending_actions, &retry_history_count) != 0) result = 1;
+				&pending_actions, &retry_history_count, NULL) != 0) result = 1;
 	if(drain_preview_events(preview_queue, &output_sequence) != 0) result = 1;
 	if(drain_resource_events_until_idle(resource_queue, &session,
 			&output_sequence, preview_queue, &preview_generation,

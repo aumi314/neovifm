@@ -148,6 +148,7 @@ jobs:
           test -f src/vifm.exe
           test -f src/neovifm-core-probe.exe
           test -f src/neovifm-core-session.exe
+          test -f src/neovifm-win-open.exe
 
       - name: Run Windows C tests, including NeoVifm focused suite
         shell: msys2 {0}
@@ -181,6 +182,53 @@ jobs:
           NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
         run: bun test ./integration/core-probe.test.tsx ./integration/windows-baseline.test.ts
 
+      - name: Run cross-platform watcher integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/cross-platform-watcher.test.ts 2>&1 |
+            Tee-Object -FilePath windows-watcher-integration.log
+          exit $LASTEXITCODE
+
+      - name: Run Windows file action integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          $sourceRoot = "C:\neovifm-cross-volume-actions"
+          $destinationRoot = "D:\neovifm-cross-volume-actions"
+          New-Item -ItemType Directory -Force -Path $sourceRoot, $destinationRoot | Out-Null
+          $env:NEOVIFM_CROSS_VOLUME_SOURCE_ROOT = $sourceRoot
+          $env:NEOVIFM_CROSS_VOLUME_DESTINATION_ROOT = $destinationRoot
+          $exitCode = 0
+          try {
+            bun test ./integration/windows-actions.test.ts 2>&1 |
+              Tee-Object -FilePath windows-actions-integration.log
+            $exitCode = $LASTEXITCODE
+          } finally {
+            Remove-Item -LiteralPath $sourceRoot, $destinationRoot -Recurse -Force
+          }
+          exit $exitCode
+
+      - name: Run Windows platform opener integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/windows-opener.test.ts 2>&1 |
+            Tee-Object -FilePath windows-opener-integration.log
+          exit $LASTEXITCODE
+
+      - name: Run Windows rename and multi-selection integration
+        working-directory: clients/tui
+        env:
+          NEOVIFM_CORE_SESSION: ${{ github.workspace }}\src\neovifm-core-session.exe
+        run: |
+          bun test ./integration/rename-session.test.tsx ./integration/visual-session.test.tsx 2>&1 |
+            Tee-Object -FilePath windows-selection-integration.log
+          exit $LASTEXITCODE
+
       - name: Check generated worktree and whitespace
         run: git diff --check
 
@@ -189,7 +237,12 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Windows-test-logs
-          path: tests/**/test-suite.log
+          path: |
+            tests/**/test-suite.log
+            clients/tui/windows-watcher-integration.log
+            clients/tui/windows-actions-integration.log
+            clients/tui/windows-opener-integration.log
+            clients/tui/windows-selection-integration.log
           if-no-files-found: ignore
 
   gate:

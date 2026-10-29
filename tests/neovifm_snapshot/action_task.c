@@ -12,7 +12,7 @@
 #include "../../src/neovifm/action_task.h"
 #include "../../src/neovifm/preview_task.h"
 
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
 
 static nv_pane_snapshot_t *
 pane_for(nv_workspace_session_t *session, nv_session_pane_t pane)
@@ -403,6 +403,7 @@ TEST(action_move_rolls_back_a_same_name_replacement_instead_of_moving_it)
 
 TEST(action_delete_restores_source_when_trash_helper_fails)
 {
+#ifndef _WIN32
 	const char *const helper = SANDBOX_PATH "/neovifm-test-trash-failure";
 	const char *const left = SANDBOX_PATH "/delete-failure-left";
 	const char *const right = SANDBOX_PATH "/delete-failure-right";
@@ -440,9 +441,10 @@ TEST(action_delete_restores_source_when_trash_helper_fails)
 	remove_dir(left);
 	remove_dir(right);
 	remove_file(helper);
+#endif
 }
 
-#endif /* __APPLE__ || __linux__ */
+#endif /* __APPLE__ || __linux__ || _WIN32 */
 
 /* vim: set tabstop=2 softtabstop=2 shiftwidth=2 noexpandtab cinoptions-=(0 : */
 /* vim: set cinoptions+=t0 filetype=c : */

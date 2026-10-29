@@ -106,7 +106,7 @@
         "task_id": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 32 },
         "command_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "pane": { "enum": ["left", "right"] },
-        "action": { "enum": ["copy", "move", "mkdir", "delete"] },
+        "action": { "enum": ["copy", "move", "mkdir", "delete", "rename"] },
         "state": { "enum": ["queued", "running", "done", "failed", "cancelled"] },
         "completed_count": { "type": "integer", "minimum": 0, "maximum": 64 },
         "total_count": { "type": "integer", "minimum": 1, "maximum": 64 },
@@ -258,6 +258,7 @@
         { "type": "object", "required": ["action", "direction"], "properties": { "action": { "const": "search-next" }, "direction": { "enum": [-1, 1] } } },
         { "type": "object", "required": ["action", "pane", "key"], "properties": { "action": { "const": "sort-by" }, "pane": { "enum": ["left", "right"] }, "key": { "enum": ["name", "extension", "size", "ctime", "mtime", "mode", "type", "other"] } } },
         { "type": "object", "required": ["action", "pane", "index", "toggle"], "properties": { "action": { "const": "select-entry" }, "pane": { "enum": ["left", "right"] }, "index": { "type": "integer", "minimum": 0, "maximum": 4095 }, "toggle": { "type": "boolean" } } },
+        { "type": "object", "required": ["action"], "properties": { "action": { "enum": ["select-all", "clear-selection"] }, "pane": { "enum": ["left", "right"] } } },
         { "type": "object", "required": ["action", "pane"], "properties": { "action": { "const": "new-tab" }, "pane": { "enum": ["left", "right"] } } },
         { "type": "object", "required": ["action", "pane", "tab_id"], "properties": { "action": { "enum": ["activate-tab", "close-tab"] }, "pane": { "enum": ["left", "right"] }, "tab_id": { "$ref": "#/$defs/tabId" } } },
         { "type": "object", "required": ["action", "delta"], "properties": { "action": { "const": "tab-cycle" }, "delta": { "type": "integer", "minimum": -999, "maximum": 999, "not": { "const": 0 } } } },
@@ -339,6 +340,20 @@
               "type": "object",
               "required": ["action", "pane", "cwd_bytes_hex", "snapshot_revision", "cwd_device", "cwd_inode", "cwd_ctime_unix_ns", "name"],
               "properties": { "action": { "const": "mkdir" }, "name": { "type": "string", "minLength": 1, "maxLength": 255 } }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/sourceIdentity" },
+            {
+              "type": "object",
+              "required": ["action", "pane", "cwd_bytes_hex", "snapshot_revision", "cwd_device", "cwd_inode", "cwd_ctime_unix_ns", "targets", "name"],
+              "properties": {
+                "action": { "const": "rename" },
+                "targets": { "$ref": "#/$defs/actionTargets", "minItems": 1, "maxItems": 1 },
+                "name": { "type": "string", "minLength": 1, "maxLength": 255 }
+              }
             }
           ]
         }

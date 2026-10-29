@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:preview": "bun run scripts/build-preview.ts",
     "dev": "bun run src/index.tsx",
     "test": "bun test ./test/",
     "test:coverage": "bun test ./test/ --coverage --coverage-reporter=text",
@@ -20,7 +21,9 @@
   },
   "overrides": {
     "@babel/core": "7.29.7",
-    "brace-expansion": "5.0.9",
-    "glob": "11.1.0"
+    "brace-expansion": "5.0.12",
+    "browserslist": "4.28.9",
+    "glob": "11.1.0",
+    "seroval": "1.6.11"
   }
 }

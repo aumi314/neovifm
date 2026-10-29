@@ -260,26 +260,6 @@ stat_mtime_ms(const struct stat *st)
 #endif
 }
 
-static uint64_t
-stat_ctime_ns(const struct stat *st)
-{
-#if defined(__APPLE__)
-	const time_t seconds = st->st_ctimespec.tv_sec;
-	const long nanoseconds = st->st_ctimespec.tv_nsec;
-#elif defined(__linux__) || defined(HAVE_STRUCT_STAT_ST_CTIM)
-	const time_t seconds = st->st_ctim.tv_sec;
-	const long nanoseconds = st->st_ctim.tv_nsec;
-#else
-	const time_t seconds = st->st_ctime;
-	const long nanoseconds = 0L;
-#endif
-	if(seconds < 0) return 0U;
-	const uint64_t value = (uint64_t)seconds;
-	if(value > (UINT64_MAX - (uint64_t)nanoseconds)/1000000000U)
-		return UINT64_MAX;
-	return value*1000000000U + (uint64_t)nanoseconds;
-}
-
 static nv_entry_kind_t
 entry_kind(const struct stat *st)
 {
@@ -389,14 +369,15 @@ identity_display(uint64_t id, int group)
 #endif
 
 static void
-set_stat(nv_pane_entry_t *entry, const struct stat *st, int is_symlink)
+set_stat(nv_pane_entry_t *entry, const struct stat *st, int is_symlink,
+		nv_fs_identity_t identity)
 {
 	entry->kind = is_symlink ? NV_ENTRY_SYMLINK : entry_kind(st);
 	entry->size_bytes = (st->st_size > 0) ? (uint64_t)st->st_size : 0U;
 	entry->mtime_unix_ms = stat_mtime_ms(st);
-	entry->device = (uint64_t)st->st_dev;
-	entry->inode = (uint64_t)st->st_ino;
-	entry->ctime_unix_ns = stat_ctime_ns(st);
+	entry->device = identity.device;
+	entry->inode = identity.inode;
+	entry->ctime_unix_ns = identity.ctime_unix_ns;
 	entry->mode = (uint32_t)st->st_mode;
 	entry->has_stat = 1;
 #ifndef _WIN32
@@ -447,9 +428,10 @@ build_entry(nv_dir_t *dir, const char directory[], const char name[],
 
 	struct stat st;
 	int is_symlink = 0;
-	if(nv_dir_lstat(dir, name, &st, &is_symlink) == 0)
+	nv_fs_identity_t identity = {};
+	if(nv_dir_lstat(dir, name, &st, &is_symlink, &identity) == 0)
 	{
-		set_stat(entry, &st, is_symlink);
+		set_stat(entry, &st, is_symlink, identity);
 		entry->resource_kind = entry_resource_kind(name, entry->kind);
 #ifndef _WIN32
 		if(entry->owner_display == NULL || entry->group_display == NULL)
@@ -859,20 +841,20 @@ nv_pane_snapshot_build(const char path[], nv_pane_snapshot_t *snapshot,
 		set_error(&next_error, "open-directory", errno, path);
 		goto failed;
 	}
-#ifndef _WIN32
 	struct stat cwd_stat;
-	if(nv_dir_fstat(dir, &cwd_stat) != 0 || !S_ISDIR(cwd_stat.st_mode))
+	nv_fs_identity_t cwd_identity = {};
+	if(nv_dir_fstat(dir, &cwd_stat, &cwd_identity) != 0 ||
+			!S_ISDIR(cwd_stat.st_mode))
 	{
 		const int stat_error = errno == 0 ? ENOTDIR : errno;
 		nv_dir_close(dir);
 		set_error(&next_error, "stat-directory", stat_error, path);
 		goto failed;
 	}
-	next_snapshot.cwd_device = (uint64_t)cwd_stat.st_dev;
-	next_snapshot.cwd_inode = (uint64_t)cwd_stat.st_ino;
-	next_snapshot.cwd_ctime_unix_ns = stat_ctime_ns(&cwd_stat);
+	next_snapshot.cwd_device = cwd_identity.device;
+	next_snapshot.cwd_inode = cwd_identity.inode;
+	next_snapshot.cwd_ctime_unix_ns = cwd_identity.ctime_unix_ns;
 	next_snapshot.has_cwd_stat = 1;
-#endif
 	if(initialize_snapshot(path, &next_snapshot, &next_error) != 0 ||
 			snapshot_protocol_budget(&next_snapshot, &protocol_bytes) != 0 ||
 			scan_directory(dir, path, &next_snapshot, &next_error, &capacity,
@@ -885,18 +867,17 @@ nv_pane_snapshot_build(const char path[], nv_pane_snapshot_t *snapshot,
 		nv_dir_close(dir);
 		goto failed;
 	}
-#ifndef _WIN32
 	struct stat published_stat;
-	if(stat(path, &published_stat) != 0 ||
-			published_stat.st_dev != cwd_stat.st_dev ||
-			published_stat.st_ino != cwd_stat.st_ino)
+	nv_fs_identity_t published_identity = {};
+	if(nv_lstat(path, &published_stat, NULL, &published_identity) != 0 ||
+			published_identity.device != cwd_identity.device ||
+			published_identity.inode != cwd_identity.inode)
 	{
-		const int stat_error = errno == 0 ? ESTALE : errno;
+		const int stat_error = errno == 0 ? NV_FS_STALE_ERRNO : errno;
 		nv_dir_close(dir);
 		set_error(&next_error, "stale-directory", stat_error, path);
 		goto failed;
 	}
-#endif
 	if(nv_dir_close(dir) != 0)
 	{
 		const int close_error = errno;
