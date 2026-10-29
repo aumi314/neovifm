@@ -12,7 +12,7 @@ NeoVifm 当前处于 **Workbench Alpha 0 (unreleased)**。
 
 ## 主线与验证状态
 
-主线仓库是 `aumi314/neovifm`，`master` 是唯一日常集成分支。2026-10-30 起，Windows actions、Windows opener、跨平台 watcher、portable preview、rename 和 multi-select 六层工作通过整合 PR 合入该 `master`，不再以堆叠分支作为交付形态。
+主线仓库是 `aumi314/neovifm`，`master` 是唯一日常集成分支。2026-10-30 起，Windows actions、Windows opener、跨平台 watcher、portable preview、rename 和 multi-select 六层工作已通过 [PR #7](https://github.com/aumi314/neovifm/pull/7) 合入该 `master`（`4b2cc1314061`），不再以堆叠分支作为交付形态。
 
 `Rex-Diego/neovifm` 保留为评审与回馈通道：导师已于 2026-08-27 合并 Linux actions（PR #3，`5db377e4e`），Windows actions [PR #4](https://github.com/Rex-Diego/neovifm/pull/4) 自 2026-10-16 起等待评审，不再阻塞主线推进。
 
